@@ -5,6 +5,8 @@ import morgan from 'morgan';
 
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
+import productsRouter from './routes/products.js';
+import testRouter from './routes/test.js';
 
 export function createApp() {
   const app = express();
@@ -15,6 +17,8 @@ export function createApp() {
   app.use(express.json());
 
   app.use('/health', healthRouter);
+  app.use('/api/test', testRouter);
+  app.use('/api/products', productsRouter);
 
   app.use(notFound);
   app.use(errorHandler);

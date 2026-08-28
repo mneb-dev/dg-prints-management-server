@@ -1,0 +1,204 @@
+import { randomUUID } from 'node:crypto';
+
+import { supabase } from '../config/supabaseClient.js';
+import type { Product, ProductInput, ProductOption, ProductPricing } from '../types/product.js';
+
+interface ValueRow {
+  id: string;
+  value: string;
+  sort_order: number;
+}
+
+interface OptionRow {
+  id: string;
+  name: string;
+  required: boolean;
+  sort_order: number;
+  values: ValueRow[];
+}
+
+interface PricingRow {
+  id: string;
+  applies_to: string;
+  pricing_type: string;
+  package_name: string | null;
+  price: number | string;
+  unit: string;
+  sort_order: number;
+}
+
+interface ProductRow {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  options: OptionRow[];
+  pricing: PricingRow[];
+}
+
+const PRODUCT_SELECT = `
+  id, name, category, description, status, created_at, updated_at,
+  options:product_options ( id, name, required, sort_order,
+    values:product_option_values ( id, value, sort_order ) ),
+  pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order )
+`;
+
+function mapRowToProduct(row: ProductRow): Product {
+  const options = [...row.options]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((option) => ({
+      id: option.id,
+      name: option.name,
+      required: option.required,
+      values: [...option.values]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((value) => value.value),
+    }));
+
+  const pricing = [...row.pricing]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((entry) => ({
+      id: entry.id,
+      appliesTo: entry.applies_to,
+      pricingType: entry.pricing_type,
+      packageName: entry.package_name ?? undefined,
+      price: Number(entry.price),
+      unit: entry.unit,
+    }));
+
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    description: row.description,
+    status: row.status,
+    options,
+    pricing,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toRpcPayload(product: Product) {
+  return {
+    id: product.id,
+    name: product.name,
+    category: product.category,
+    description: product.description,
+    status: product.status,
+    options: product.options.map((option, index) => ({
+      id: option.id,
+      name: option.name,
+      required: option.required,
+      sort_order: index,
+      values: option.values.map((value, valueIndex) => ({ value, sort_order: valueIndex })),
+    })),
+    pricing: product.pricing.map((entry, index) => ({
+      id: entry.id,
+      applies_to: entry.appliesTo,
+      pricing_type: entry.pricingType,
+      package_name: entry.packageName ?? null,
+      price: entry.price,
+      unit: entry.unit,
+      sort_order: index,
+    })),
+  };
+}
+
+function normalizeOptions(
+  options: ProductInput['options'],
+  forceNewIds = false
+): ProductOption[] {
+  return (options ?? []).map((option) => ({
+    id: forceNewIds ? randomUUID() : option.id ?? randomUUID(),
+    name: option.name ?? '',
+    required: option.required ?? false,
+    values: option.values ?? [],
+  }));
+}
+
+function normalizePricing(
+  pricing: ProductInput['pricing'],
+  forceNewIds = false
+): ProductPricing[] {
+  return (pricing ?? []).map((entry) => ({
+    id: forceNewIds ? randomUUID() : entry.id ?? randomUUID(),
+    appliesTo: entry.appliesTo ?? 'All',
+    pricingType: entry.pricingType ?? 'Package',
+    packageName: entry.packageName,
+    price: entry.price ?? 0,
+    unit: entry.unit ?? 'Package',
+  }));
+}
+
+export async function listProducts(): Promise<Product[]> {
+  const { data, error } = await supabase.from('products').select(PRODUCT_SELECT);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as ProductRow[]).map(mapRowToProduct);
+}
+
+export async function getProduct(id: string): Promise<Product | undefined> {
+  const { data, error } = await supabase
+    .from('products')
+    .select(PRODUCT_SELECT)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapRowToProduct(data as unknown as ProductRow) : undefined;
+}
+
+export async function createProduct(input: ProductInput): Promise<Product> {
+  const now = new Date().toISOString();
+  const product: Product = {
+    id: randomUUID(),
+    name: input.name ?? '',
+    category: input.category ?? '',
+    description: input.description ?? '',
+    status: input.status ?? 'Active',
+    options: normalizeOptions(input.options, true),
+    pricing: normalizePricing(input.pricing, true),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const { error } = await supabase.rpc('upsert_product', { payload: toRpcPayload(product) });
+  if (error) throw new Error(error.message);
+
+  const created = await getProduct(product.id);
+  if (!created) throw new Error('Failed to load created product');
+  return created;
+}
+
+export async function updateProduct(
+  id: string,
+  input: ProductInput
+): Promise<Product | undefined> {
+  const existing = await getProduct(id);
+  if (!existing) return undefined;
+
+  const updated: Product = {
+    ...existing,
+    ...input,
+    options: input.options ? normalizeOptions(input.options) : existing.options,
+    pricing: input.pricing ? normalizePricing(input.pricing) : existing.pricing,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.rpc('upsert_product', { payload: toRpcPayload(updated) });
+  if (error) throw new Error(error.message);
+
+  const result = await getProduct(id);
+  if (!result) throw new Error('Failed to load updated product');
+  return result;
+}
+
+export async function deleteProduct(id: string): Promise<boolean> {
+  const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
+}
