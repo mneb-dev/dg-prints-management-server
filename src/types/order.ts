@@ -64,6 +64,7 @@ export interface Order {
   discount: number;
   total: number;
   notes: string;
+  description: string;
   channel: string;
   additionalFees: number;
   createdAt: string;

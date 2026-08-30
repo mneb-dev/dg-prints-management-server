@@ -33,6 +33,14 @@ async function validateActiveProducts(items: unknown): Promise<string | null> {
   return null;
 }
 
+function validateDescription(description: unknown): string | null {
+  if (description === undefined || description === null) return null;
+  if (typeof description !== 'string' || description.length > 20) {
+    return '"description" must be a string of at most 20 characters';
+  }
+  return null;
+}
+
 router.get('/', async (_req, res, next) => {
   try {
     res.json(await listOrders());
@@ -66,6 +74,11 @@ router.post('/', async (req, res, next) => {
       res.status(400).json({ error: productError });
       return;
     }
+    const descriptionError = validateDescription(req.body?.description);
+    if (descriptionError) {
+      res.status(400).json({ error: descriptionError });
+      return;
+    }
     const order = await createOrder(req.body);
     res.status(201).json(order);
   } catch (err) {
@@ -78,6 +91,11 @@ router.put('/:id', async (req, res, next) => {
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });
+      return;
+    }
+    const descriptionError = validateDescription(req.body?.description);
+    if (descriptionError) {
+      res.status(400).json({ error: descriptionError });
       return;
     }
     const updated = await updateOrder(req.params.id, req.body ?? {});

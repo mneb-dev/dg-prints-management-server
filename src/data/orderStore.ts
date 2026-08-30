@@ -36,6 +36,7 @@ interface OrderRow {
   discount: number | string;
   total: number | string;
   notes: string;
+  description: string;
   channel: string;
   additional_fees: number | string;
   created_at: string;
@@ -50,7 +51,7 @@ interface OrderRow {
 
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
-  subtotal, discount, total, notes, channel, additional_fees,
+  subtotal, discount, total, notes, description, channel, additional_fees,
   created_at, updated_at, shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
   items:order_items ( id, product_id, product_name, product_category,
@@ -108,6 +109,7 @@ function mapRowToOrder(row: OrderRow): Order {
     discount: Number(row.discount),
     total: Number(row.total),
     notes: row.notes,
+    description: row.description,
     channel: row.channel,
     additionalFees: Number(row.additional_fees),
     createdAt: row.created_at,
@@ -132,6 +134,7 @@ function toRpcPayload(order: Order) {
     discount: order.discount,
     total: order.total,
     notes: order.notes,
+    description: order.description,
     channel: order.channel,
     additional_fees: order.additionalFees,
     shipping_address: order.shippingAddress ?? null,
@@ -220,6 +223,7 @@ export async function createOrder(input: OrderInput): Promise<Order> {
     discount: input.discount ?? 0,
     total: input.total ?? 0,
     notes: input.notes ?? '',
+    description: input.description ?? '',
     channel: input.channel ?? '',
     additionalFees: input.additionalFees ?? 0,
     createdAt: now,
