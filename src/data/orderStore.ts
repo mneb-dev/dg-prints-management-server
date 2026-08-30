@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { supabase } from '../config/supabaseClient.js';
+import { getUser } from './userStore.js';
 import type {
   Order,
   OrderInput,
@@ -41,6 +42,9 @@ interface OrderRow {
   additional_fees: number | string;
   created_at: string;
   updated_at: string;
+  status_updated_by: string | null;
+  status_updated_by_name: string;
+  status_updated_at: string | null;
   shipping_address: Record<string, unknown> | null;
   payment_status: string;
   payment_method: string | null;
@@ -52,7 +56,8 @@ interface OrderRow {
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
   subtotal, discount, total, notes, description, channel, additional_fees,
-  created_at, updated_at, shipping_address,
+  created_at, updated_at, status_updated_by, status_updated_by_name, status_updated_at,
+  shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
   items:order_items ( id, product_id, product_name, product_category,
     selected_options, quantity, notes, pricing, line_total, sticker_quotation, sort_order )
@@ -114,6 +119,9 @@ function mapRowToOrder(row: OrderRow): Order {
     additionalFees: Number(row.additional_fees),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    statusUpdatedBy: row.status_updated_by,
+    statusUpdatedByName: row.status_updated_by_name,
+    statusUpdatedAt: row.status_updated_at,
     shippingAddress: row.shipping_address as ShippingAddress | null,
     payment: {
       status: row.payment_status,
@@ -137,6 +145,9 @@ function toRpcPayload(order: Order) {
     description: order.description,
     channel: order.channel,
     additional_fees: order.additionalFees,
+    status_updated_by: order.statusUpdatedBy,
+    status_updated_by_name: order.statusUpdatedByName,
+    status_updated_at: order.statusUpdatedAt,
     shipping_address: order.shippingAddress ?? null,
     payment_status: order.payment.status,
     payment_method: order.payment.method,
@@ -187,10 +198,48 @@ function normalizeItems(
   }));
 }
 
-export async function listOrders(): Promise<Order[]> {
-  const { data, error } = await supabase.from('orders').select(ORDER_SELECT);
+export interface ListOrdersParams {
+  page: number;
+  pageSize: number;
+  search?: string;
+  category?: string;
+  status?: string;
+  paymentStatus?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sortBy: string;
+  sortDir: 'asc' | 'desc';
+}
+
+export interface ListOrdersResult {
+  items: Order[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function listOrders(params: ListOrdersParams): Promise<ListOrdersResult> {
+  const { page, pageSize, search, category, status, paymentStatus, dateFrom, dateTo, sortBy, sortDir } = params;
+  const { data, error } = await supabase.rpc('list_orders', {
+    p_search: search || null,
+    p_category: category || null,
+    p_status: status || null,
+    p_payment_status: paymentStatus || null,
+    p_date_from: dateFrom || null,
+    p_date_to: dateTo || null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize,
+    p_sort_by: sortBy,
+    p_sort_dir: sortDir,
+  });
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as OrderRow[]).map(mapRowToOrder);
+  const payload = data as unknown as { rows: OrderRow[]; total: number };
+  return {
+    items: payload.rows.map(mapRowToOrder),
+    total: payload.total,
+    page,
+    pageSize,
+  };
 }
 
 export async function getOrder(id: string): Promise<Order | undefined> {
@@ -203,8 +252,14 @@ export async function getOrder(id: string): Promise<Order | undefined> {
   return data ? mapRowToOrder(data as unknown as OrderRow) : undefined;
 }
 
-export async function createOrder(input: OrderInput): Promise<Order> {
+async function resolveActorName(actorId: string): Promise<string> {
+  const user = await getUser(actorId);
+  return user ? `${user.firstName} ${user.lastName}`.trim() : '';
+}
+
+export async function createOrder(input: OrderInput, actorId: string): Promise<Order> {
   const now = new Date().toISOString();
+  const actorName = await resolveActorName(actorId);
   const payment: Payment = {
     status: input.payment?.status ?? 'unpaid',
     method: input.payment?.method ?? null,
@@ -228,6 +283,9 @@ export async function createOrder(input: OrderInput): Promise<Order> {
     additionalFees: input.additionalFees ?? 0,
     createdAt: now,
     updatedAt: now,
+    statusUpdatedBy: actorId,
+    statusUpdatedByName: actorName,
+    statusUpdatedAt: now,
     shippingAddress: input.shippingAddress ?? null,
     payment,
   };
@@ -242,10 +300,15 @@ export async function createOrder(input: OrderInput): Promise<Order> {
 
 export async function updateOrder(
   id: string,
-  input: OrderInput
+  input: OrderInput,
+  actorId: string
 ): Promise<Order | undefined> {
   const existing = await getOrder(id);
   if (!existing) return undefined;
+
+  const statusChanged = input.status !== undefined && input.status !== existing.status;
+  const statusActorName = statusChanged ? await resolveActorName(actorId) : existing.statusUpdatedByName;
+  const now = new Date().toISOString();
 
   const updated: Order = {
     ...existing,
@@ -262,7 +325,10 @@ export async function updateOrder(
     id: existing.id,
     orderNumber: existing.orderNumber,
     createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
+    statusUpdatedBy: statusChanged ? actorId : existing.statusUpdatedBy,
+    statusUpdatedByName: statusActorName,
+    statusUpdatedAt: statusChanged ? now : existing.statusUpdatedAt,
   };
 
   const { error } = await supabase.rpc('upsert_order', { payload: toRpcPayload(updated) });

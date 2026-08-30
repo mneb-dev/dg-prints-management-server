@@ -8,8 +8,14 @@ import {
   updateOrder,
 } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
+
+router.use(requireAuth);
+
+const ORDER_SORT_KEYS = ['order_number', 'customer_name', 'total', 'created_at'] as const;
 
 async function validateActiveProducts(items: unknown): Promise<string | null> {
   if (!Array.isArray(items) || items.length === 0) return null;
@@ -41,9 +47,38 @@ function validateDescription(description: unknown): string | null {
   return null;
 }
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
-    res.json(await listOrders());
+    const pageSize = parsePageSize(req.query.pageSize);
+    if (typeof pageSize !== 'number') {
+      res.status(400).json({ error: pageSize.error });
+      return;
+    }
+    const page = parsePage(req.query.page);
+    const dateFromRaw = queryString(req.query.dateFrom);
+    const dateToRaw = queryString(req.query.dateTo);
+
+    if (
+      (dateFromRaw && Number.isNaN(Date.parse(dateFromRaw))) ||
+      (dateToRaw && Number.isNaN(Date.parse(dateToRaw)))
+    ) {
+      res.status(400).json({ error: '"dateFrom"/"dateTo" must be valid dates (YYYY-MM-DD)' });
+      return;
+    }
+
+    const result = await listOrders({
+      page,
+      pageSize,
+      search: queryString(req.query.search),
+      category: queryString(req.query.category),
+      status: queryString(req.query.status),
+      paymentStatus: queryString(req.query.paymentStatus),
+      dateFrom: dateFromRaw ? new Date(dateFromRaw).toISOString() : undefined,
+      dateTo: dateToRaw ? new Date(`${dateToRaw}T23:59:59.999`).toISOString() : undefined,
+      sortBy: parseSortBy(req.query.sortBy, ORDER_SORT_KEYS, 'created_at'),
+      sortDir: parseSortDir(req.query.sortDir),
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -62,7 +97,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
   try {
     const { customerName } = req.body ?? {};
     if (!customerName || typeof customerName !== 'string') {
@@ -79,14 +114,14 @@ router.post('/', async (req, res, next) => {
       res.status(400).json({ error: descriptionError });
       return;
     }
-    const order = await createOrder(req.body);
+    const order = await createOrder(req.body, req.user!.sub);
     res.status(201).json(order);
   } catch (err) {
     next(err);
   }
 });
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requirePermission('manage_orders'), async (req, res, next) => {
   try {
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
@@ -98,7 +133,7 @@ router.put('/:id', async (req, res, next) => {
       res.status(400).json({ error: descriptionError });
       return;
     }
-    const updated = await updateOrder(req.params.id, req.body ?? {});
+    const updated = await updateOrder(req.params.id, req.body ?? {}, req.user!.sub);
     if (!updated) {
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;
@@ -109,7 +144,7 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requirePermission('manage_orders'), async (req, res, next) => {
   try {
     const deleted = await deleteOrder(req.params.id);
     if (!deleted) {

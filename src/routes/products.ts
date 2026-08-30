@@ -7,12 +7,42 @@ import {
   listProducts,
   updateProduct,
 } from '../data/productStore.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
 
-router.get('/', async (_req, res, next) => {
+router.use(requireAuth);
+
+const PRODUCT_SORT_KEYS = ['name', 'category', 'status', 'created_at'] as const;
+
+router.get('/', async (req, res, next) => {
   try {
-    res.json(await listProducts());
+    const all = req.query.all === 'true';
+    let pageSize: number | null;
+    if (all) {
+      pageSize = null;
+    } else {
+      const parsed = parsePageSize(req.query.pageSize);
+      if (typeof parsed !== 'number') {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+      pageSize = parsed;
+    }
+    const page = all ? 1 : parsePage(req.query.page);
+
+    const result = await listProducts({
+      page,
+      pageSize,
+      search: queryString(req.query.search),
+      category: queryString(req.query.category),
+      status: queryString(req.query.status),
+      pricingType: queryString(req.query.pricingType),
+      sortBy: parseSortBy(req.query.sortBy, PRODUCT_SORT_KEYS, 'created_at'),
+      sortDir: parseSortDir(req.query.sortDir),
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -31,7 +61,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('manage_products'), async (req, res, next) => {
   try {
     const { name } = req.body ?? {};
     if (!name || typeof name !== 'string') {
@@ -45,7 +75,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requirePermission('manage_products'), async (req, res, next) => {
   try {
     const updated = await updateProduct(req.params.id, req.body ?? {});
     if (!updated) {
@@ -58,7 +88,7 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requirePermission('manage_products'), async (req, res, next) => {
   try {
     const deleted = await deleteProduct(req.params.id);
     if (!deleted) {

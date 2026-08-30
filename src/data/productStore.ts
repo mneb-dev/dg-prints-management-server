@@ -134,10 +134,44 @@ function normalizePricing(
   }));
 }
 
-export async function listProducts(): Promise<Product[]> {
-  const { data, error } = await supabase.from('products').select(PRODUCT_SELECT);
+export interface ListProductsParams {
+  page: number;
+  pageSize: number | null;
+  search?: string;
+  category?: string;
+  status?: string;
+  pricingType?: string;
+  sortBy: string;
+  sortDir: 'asc' | 'desc';
+}
+
+export interface ListProductsResult {
+  items: Product[];
+  total: number;
+  page: number;
+  pageSize: number | null;
+}
+
+export async function listProducts(params: ListProductsParams): Promise<ListProductsResult> {
+  const { page, pageSize, search, category, status, pricingType, sortBy, sortDir } = params;
+  const { data, error } = await supabase.rpc('list_products', {
+    p_search: search || null,
+    p_category: category || null,
+    p_status: status || null,
+    p_pricing_type: pricingType || null,
+    p_limit: pageSize,
+    p_offset: pageSize === null ? 0 : (page - 1) * pageSize,
+    p_sort_by: sortBy,
+    p_sort_dir: sortDir,
+  });
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as ProductRow[]).map(mapRowToProduct);
+  const payload = data as unknown as { rows: ProductRow[]; total: number };
+  return {
+    items: payload.rows.map(mapRowToProduct),
+    total: payload.total,
+    page,
+    pageSize,
+  };
 }
 
 export async function getProduct(id: string): Promise<Product | undefined> {

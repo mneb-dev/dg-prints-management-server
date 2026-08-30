@@ -69,6 +69,9 @@ export interface Order {
   additionalFees: number;
   createdAt: string;
   updatedAt: string;
+  statusUpdatedBy: string | null;
+  statusUpdatedByName: string;
+  statusUpdatedAt: string | null;
   shippingAddress: ShippingAddress | null;
   payment: Payment;
 }
@@ -78,7 +81,17 @@ export type OrderItemInput = Partial<Omit<OrderItem, 'pricing'>> & {
 };
 
 export type OrderInput = Partial<
-  Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt' | 'items'>
+  Omit<
+    Order,
+    | 'id'
+    | 'orderNumber'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'items'
+    | 'statusUpdatedBy'
+    | 'statusUpdatedByName'
+    | 'statusUpdatedAt'
+  >
 > & {
   items?: OrderItemInput[];
 };
