@@ -67,8 +67,11 @@ export interface Order {
   description: string;
   channel: string;
   additionalFees: number;
+  layoutFee: number;
   createdAt: string;
   updatedAt: string;
+  createdBy: string | null;
+  createdByName: string;
   statusUpdatedBy: string | null;
   statusUpdatedByName: string;
   statusUpdatedAt: string | null;
@@ -88,6 +91,8 @@ export type OrderInput = Partial<
     | 'createdAt'
     | 'updatedAt'
     | 'items'
+    | 'createdBy'
+    | 'createdByName'
     | 'statusUpdatedBy'
     | 'statusUpdatedByName'
     | 'statusUpdatedAt'

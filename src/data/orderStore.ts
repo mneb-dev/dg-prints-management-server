@@ -40,10 +40,15 @@ interface OrderRow {
   description: string;
   channel: string;
   additional_fees: number | string;
+  layout_fee: number | string;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  // Present (joined/computed) on list_orders' RPC rows; absent on getOrder's
+  // plain-column select — getOrder resolves the name itself after fetching.
+  created_by_name?: string;
   status_updated_by: string | null;
-  status_updated_by_name: string;
+  status_updated_by_name?: string;
   status_updated_at: string | null;
   shipping_address: Record<string, unknown> | null;
   payment_status: string;
@@ -55,8 +60,8 @@ interface OrderRow {
 
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
-  subtotal, discount, total, notes, description, channel, additional_fees,
-  created_at, updated_at, status_updated_by, status_updated_by_name, status_updated_at,
+  subtotal, discount, total, notes, description, channel, additional_fees, layout_fee,
+  created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
   items:order_items ( id, product_id, product_name, product_category,
@@ -117,10 +122,13 @@ function mapRowToOrder(row: OrderRow): Order {
     description: row.description,
     channel: row.channel,
     additionalFees: Number(row.additional_fees),
+    layoutFee: Number(row.layout_fee),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name ?? '',
     statusUpdatedBy: row.status_updated_by,
-    statusUpdatedByName: row.status_updated_by_name,
+    statusUpdatedByName: row.status_updated_by_name ?? '',
     statusUpdatedAt: row.status_updated_at,
     shippingAddress: row.shipping_address as ShippingAddress | null,
     payment: {
@@ -145,8 +153,9 @@ function toRpcPayload(order: Order) {
     description: order.description,
     channel: order.channel,
     additional_fees: order.additionalFees,
+    layout_fee: order.layoutFee,
+    created_by: order.createdBy,
     status_updated_by: order.statusUpdatedBy,
-    status_updated_by_name: order.statusUpdatedByName,
     status_updated_at: order.statusUpdatedAt,
     shipping_address: order.shippingAddress ?? null,
     payment_status: order.payment.status,
@@ -249,7 +258,14 @@ export async function getOrder(id: string): Promise<Order | undefined> {
     .eq('id', id)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data ? mapRowToOrder(data as unknown as OrderRow) : undefined;
+  if (!data) return undefined;
+
+  const order = mapRowToOrder(data as unknown as OrderRow);
+  const [createdByName, statusUpdatedByName] = await Promise.all([
+    order.createdBy ? resolveActorName(order.createdBy) : Promise.resolve(''),
+    order.statusUpdatedBy ? resolveActorName(order.statusUpdatedBy) : Promise.resolve(''),
+  ]);
+  return { ...order, createdByName, statusUpdatedByName };
 }
 
 async function resolveActorName(actorId: string): Promise<string> {
@@ -259,7 +275,6 @@ async function resolveActorName(actorId: string): Promise<string> {
 
 export async function createOrder(input: OrderInput, actorId: string): Promise<Order> {
   const now = new Date().toISOString();
-  const actorName = await resolveActorName(actorId);
   const payment: Payment = {
     status: input.payment?.status ?? 'unpaid',
     method: input.payment?.method ?? null,
@@ -281,10 +296,13 @@ export async function createOrder(input: OrderInput, actorId: string): Promise<O
     description: input.description ?? '',
     channel: input.channel ?? '',
     additionalFees: input.additionalFees ?? 0,
+    layoutFee: input.layoutFee ?? 0,
     createdAt: now,
     updatedAt: now,
+    createdBy: actorId,
+    createdByName: '',
     statusUpdatedBy: actorId,
-    statusUpdatedByName: actorName,
+    statusUpdatedByName: '',
     statusUpdatedAt: now,
     shippingAddress: input.shippingAddress ?? null,
     payment,
@@ -307,7 +325,6 @@ export async function updateOrder(
   if (!existing) return undefined;
 
   const statusChanged = input.status !== undefined && input.status !== existing.status;
-  const statusActorName = statusChanged ? await resolveActorName(actorId) : existing.statusUpdatedByName;
   const now = new Date().toISOString();
 
   const updated: Order = {
@@ -327,7 +344,6 @@ export async function updateOrder(
     createdAt: existing.createdAt,
     updatedAt: now,
     statusUpdatedBy: statusChanged ? actorId : existing.statusUpdatedBy,
-    statusUpdatedByName: statusActorName,
     statusUpdatedAt: statusChanged ? now : existing.statusUpdatedAt,
   };
 
