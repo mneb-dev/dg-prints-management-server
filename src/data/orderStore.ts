@@ -8,6 +8,7 @@ import type {
   OrderItem,
   OrderItemInput,
   OrderItemPricing,
+  OrderUpdateInput,
   Payment,
   ShippingAddress,
   StickerQuotation,
@@ -154,6 +155,7 @@ function toRpcPayload(order: Order) {
     channel: order.channel,
     additional_fees: order.additionalFees,
     layout_fee: order.layoutFee,
+    created_at: order.createdAt,
     created_by: order.createdBy,
     status_updated_by: order.statusUpdatedBy,
     status_updated_at: order.statusUpdatedAt,
@@ -318,7 +320,7 @@ export async function createOrder(input: OrderInput, actorId: string): Promise<O
 
 export async function updateOrder(
   id: string,
-  input: OrderInput,
+  input: OrderUpdateInput,
   actorId: string
 ): Promise<Order | undefined> {
   const existing = await getOrder(id);
@@ -341,10 +343,21 @@ export async function updateOrder(
       : existing.payment,
     id: existing.id,
     orderNumber: existing.orderNumber,
-    createdAt: existing.createdAt,
     updatedAt: now,
-    statusUpdatedBy: statusChanged ? actorId : existing.statusUpdatedBy,
-    statusUpdatedAt: statusChanged ? now : existing.statusUpdatedAt,
+    createdAt: input.createdAt ?? existing.createdAt,
+    createdBy: input.createdBy !== undefined ? input.createdBy : existing.createdBy,
+    statusUpdatedBy:
+      input.statusUpdatedBy !== undefined
+        ? input.statusUpdatedBy
+        : statusChanged
+          ? actorId
+          : existing.statusUpdatedBy,
+    statusUpdatedAt:
+      input.statusUpdatedAt !== undefined
+        ? input.statusUpdatedAt
+        : statusChanged
+          ? now
+          : existing.statusUpdatedAt,
   };
 
   const { error } = await supabase.rpc('upsert_order', { payload: toRpcPayload(updated) });

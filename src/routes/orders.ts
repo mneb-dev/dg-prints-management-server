@@ -8,6 +8,7 @@ import {
   updateOrder,
 } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
+import { getUser } from '../data/userStore.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
@@ -43,6 +44,43 @@ function validateDescription(description: unknown): string | null {
   if (description === undefined || description === null) return null;
   if (typeof description !== 'string' || description.length > 20) {
     return '"description" must be a string of at most 20 characters';
+  }
+  return null;
+}
+
+const ADMIN_METADATA_KEYS = ['createdAt', 'createdBy', 'statusUpdatedAt', 'statusUpdatedBy'] as const;
+
+// createdAt/createdBy/statusUpdatedAt/statusUpdatedBy are normally derived server-side
+// (see orderStore.ts#updateOrder); only admin/superadmin may override them directly.
+async function validateAdminMetadata(
+  body: Record<string, unknown>,
+  role: string | undefined
+): Promise<{ status: number; error: string } | null> {
+  const present = ADMIN_METADATA_KEYS.filter((key) => body[key] !== undefined);
+  if (present.length === 0) return null;
+  if (role !== 'admin' && role !== 'superadmin') {
+    return { status: 403, error: 'Only admin or superadmin can modify created/status metadata' };
+  }
+  for (const key of ['createdAt', 'statusUpdatedAt'] as const) {
+    const value = body[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+      return { status: 400, error: `"${key}" must be a valid date` };
+    }
+    if (Date.parse(value) > Date.now()) {
+      return { status: 400, error: `"${key}" cannot be in the future` };
+    }
+  }
+  for (const key of ['createdBy', 'statusUpdatedBy'] as const) {
+    const value = body[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string') {
+      return { status: 400, error: `"${key}" must be a user id` };
+    }
+    const user = await getUser(value);
+    if (!user) {
+      return { status: 400, error: `User not found: ${value}` };
+    }
   }
   return null;
 }
@@ -123,6 +161,14 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
 
 router.put('/:id', requirePermission('manage_orders'), async (req, res, next) => {
   try {
+    const metadataError = await validateAdminMetadata(
+      (req.body ?? {}) as Record<string, unknown>,
+      req.user?.role
+    );
+    if (metadataError) {
+      res.status(metadataError.status).json({ error: metadataError.error });
+      return;
+    }
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });

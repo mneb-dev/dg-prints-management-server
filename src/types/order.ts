@@ -100,3 +100,15 @@ export type OrderInput = Partial<
 > & {
   items?: OrderItemInput[];
 };
+
+// Fields only an admin/superadmin may set on update (enforced in the route layer,
+// not here) — never accepted on create, and never includes the *Name fields since
+// those are always resolved live from `users`, never stored as a snapshot.
+export type OrderAdminEditableFields = {
+  createdAt?: string;
+  createdBy?: string | null;
+  statusUpdatedAt?: string | null;
+  statusUpdatedBy?: string | null;
+};
+
+export type OrderUpdateInput = OrderInput & OrderAdminEditableFields;
