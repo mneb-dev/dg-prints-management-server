@@ -4,6 +4,9 @@
   "description": "DG Prints Management Portal - backend server",
   "type": "module",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx watch src/server.ts",
     "build": "tsc",

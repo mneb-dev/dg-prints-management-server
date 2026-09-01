@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+import { CORS_ORIGIN } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import healthRouter from './routes/health.js';
@@ -18,7 +19,7 @@ export function createApp() {
   // NodeNext resolvers (observed on Vercel's Linux build) resolve to a
   // non-callable type even though the runtime export is a callable function.
   app.use((helmet as any)());
-  app.use(cors());
+  app.use(cors({ origin: CORS_ORIGIN || undefined }));
   app.use(morgan('dev'));
   app.use(express.json());
 
