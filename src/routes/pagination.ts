@@ -9,6 +9,14 @@ export function parsePageSize(raw: unknown): number | { error: string } {
   return n;
 }
 
+export function parseLimit(raw: unknown, max: number): number | { error: string } {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || n > max) {
+    return { error: `"limit" must be a number between 1 and ${max}` };
+  }
+  return Math.floor(n);
+}
+
 export function parsePage(raw: unknown): number {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;

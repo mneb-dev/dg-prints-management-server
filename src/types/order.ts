@@ -112,3 +112,14 @@ export type OrderAdminEditableFields = {
 };
 
 export type OrderUpdateInput = OrderInput & OrderAdminEditableFields;
+
+// One customer aggregated across orders within the ranking window (see `top_customers` in
+// supabase/migrations/) — powers the order form's customer combobox suggestions, top-5 badge,
+// and auto-fill of Phone + shipping fields from the customer's most recent order.
+export interface CustomerRanking {
+  customerName: string;
+  customerPhone: string;
+  shippingAddress: ShippingAddress | null;
+  totalSpent: number;
+  orderCount: number;
+}

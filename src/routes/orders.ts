@@ -5,18 +5,21 @@ import {
   deleteOrder,
   getOrder,
   listOrders,
+  listTopCustomers,
   updateOrder,
 } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
 import { getUser } from '../data/userStore.js';
+import { CUSTOMER_RANKING_WINDOW_DAYS } from '../config/env.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
+import { parseLimit, parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
 const ORDER_SORT_KEYS = ['order_number', 'customer_name', 'total', 'created_at'] as const;
+const MAX_RECENT_LIMIT = 200;
 
 async function validateActiveProducts(items: unknown): Promise<string | null> {
   if (!Array.isArray(items) || items.length === 0) return null;
@@ -143,12 +146,25 @@ async function validateAdminMetadata(
 
 router.get('/', async (req, res, next) => {
   try {
-    const pageSize = parsePageSize(req.query.pageSize);
-    if (typeof pageSize !== 'number') {
-      res.status(400).json({ error: pageSize.error });
-      return;
+    let pageSize: number;
+    let page: number;
+    if (req.query.limit !== undefined) {
+      const limit = parseLimit(req.query.limit, MAX_RECENT_LIMIT);
+      if (typeof limit !== 'number') {
+        res.status(400).json({ error: limit.error });
+        return;
+      }
+      pageSize = limit;
+      page = 1;
+    } else {
+      const parsedPageSize = parsePageSize(req.query.pageSize);
+      if (typeof parsedPageSize !== 'number') {
+        res.status(400).json({ error: parsedPageSize.error });
+        return;
+      }
+      pageSize = parsedPageSize;
+      page = parsePage(req.query.page);
     }
-    const page = parsePage(req.query.page);
     const dateFromRaw = queryString(req.query.dateFrom);
     const dateToRaw = queryString(req.query.dateTo);
 
@@ -173,6 +189,16 @@ router.get('/', async (req, res, next) => {
       sortDir: parseSortDir(req.query.sortDir),
     });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Registered before '/:id' so "customers" isn't matched as an order id.
+router.get('/customers/top', async (req, res, next) => {
+  try {
+    const customers = await listTopCustomers(CUSTOMER_RANKING_WINDOW_DAYS);
+    res.json({ customers, windowDays: CUSTOMER_RANKING_WINDOW_DAYS });
   } catch (err) {
     next(err);
   }

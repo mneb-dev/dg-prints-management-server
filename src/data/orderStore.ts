@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { supabase } from '../config/supabaseClient.js';
 import { getUser } from './userStore.js';
 import type {
+  CustomerRanking,
   Order,
   OrderInput,
   OrderItem,
@@ -251,6 +252,26 @@ export async function listOrders(params: ListOrdersParams): Promise<ListOrdersRe
     page,
     pageSize,
   };
+}
+
+interface CustomerRankingRow {
+  customer_name: string;
+  customer_phone: string;
+  shipping_address: Record<string, unknown> | null;
+  total_spent: number | string;
+  order_count: number | string;
+}
+
+export async function listTopCustomers(days: number): Promise<CustomerRanking[]> {
+  const { data, error } = await supabase.rpc('top_customers', { p_days: days });
+  if (error) throw new Error(error.message);
+  return (data as unknown as CustomerRankingRow[]).map((row) => ({
+    customerName: row.customer_name,
+    customerPhone: row.customer_phone,
+    shippingAddress: row.shipping_address as ShippingAddress | null,
+    totalSpent: Number(row.total_spent),
+    orderCount: Number(row.order_count),
+  }));
 }
 
 export async function getOrder(id: string): Promise<Order | undefined> {
