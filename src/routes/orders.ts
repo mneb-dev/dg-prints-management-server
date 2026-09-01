@@ -48,6 +48,45 @@ function validateDescription(description: unknown): string | null {
   return null;
 }
 
+function validateCustomerName(customerName: unknown, required: boolean): string | null {
+  if (customerName === undefined || customerName === null) {
+    return required ? '"customerName" is required' : null;
+  }
+  if (typeof customerName !== 'string' || !customerName.trim()) {
+    return '"customerName" is required';
+  }
+  if (customerName.length > 60) {
+    return '"customerName" must be at most 60 characters';
+  }
+  return null;
+}
+
+function validateShippingAddress(shippingAddress: unknown): string | null {
+  if (shippingAddress === undefined || shippingAddress === null) return null;
+  if (typeof shippingAddress !== 'object') {
+    return '"shippingAddress" must be an object';
+  }
+  const { name, address } = shippingAddress as { name?: unknown; address?: unknown };
+  if (name !== undefined && (typeof name !== 'string' || name.length > 60)) {
+    return '"shippingAddress.name" must be a string of at most 60 characters';
+  }
+  if (address !== undefined && (typeof address !== 'string' || address.length > 250)) {
+    return '"shippingAddress.address" must be a string of at most 250 characters';
+  }
+  return null;
+}
+
+function validateItemNotes(items: unknown): string | null {
+  if (!Array.isArray(items)) return null;
+  for (const item of items) {
+    const notes = (item as { notes?: unknown } | null)?.notes;
+    if (notes !== undefined && (typeof notes !== 'string' || notes.length > 60)) {
+      return '"notes" must be a string of at most 60 characters';
+    }
+  }
+  return null;
+}
+
 const ADMIN_METADATA_KEYS = ['createdAt', 'createdBy', 'statusUpdatedAt', 'statusUpdatedBy'] as const;
 
 // createdAt/createdBy/statusUpdatedAt/statusUpdatedBy are normally derived server-side
@@ -137,9 +176,9 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
   try {
-    const { customerName } = req.body ?? {};
-    if (!customerName || typeof customerName !== 'string') {
-      res.status(400).json({ error: '"customerName" is required' });
+    const customerNameError = validateCustomerName(req.body?.customerName, true);
+    if (customerNameError) {
+      res.status(400).json({ error: customerNameError });
       return;
     }
     const productError = await validateActiveProducts(req.body?.items);
@@ -150,6 +189,16 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
     const descriptionError = validateDescription(req.body?.description);
     if (descriptionError) {
       res.status(400).json({ error: descriptionError });
+      return;
+    }
+    const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);
+    if (shippingAddressError) {
+      res.status(400).json({ error: shippingAddressError });
+      return;
+    }
+    const itemNotesError = validateItemNotes(req.body?.items);
+    if (itemNotesError) {
+      res.status(400).json({ error: itemNotesError });
       return;
     }
     const order = await createOrder(req.body, req.user!.sub);
@@ -169,6 +218,11 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
       res.status(metadataError.status).json({ error: metadataError.error });
       return;
     }
+    const customerNameError = validateCustomerName(req.body?.customerName, false);
+    if (customerNameError) {
+      res.status(400).json({ error: customerNameError });
+      return;
+    }
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });
@@ -177,6 +231,16 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const descriptionError = validateDescription(req.body?.description);
     if (descriptionError) {
       res.status(400).json({ error: descriptionError });
+      return;
+    }
+    const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);
+    if (shippingAddressError) {
+      res.status(400).json({ error: shippingAddressError });
+      return;
+    }
+    const itemNotesError = validateItemNotes(req.body?.items);
+    if (itemNotesError) {
+      res.status(400).json({ error: itemNotesError });
       return;
     }
     const updated = await updateOrder(req.params.id, req.body ?? {}, req.user!.sub);

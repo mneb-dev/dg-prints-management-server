@@ -16,6 +16,14 @@ router.use(requireAuth);
 
 const PRODUCT_SORT_KEYS = ['name', 'category', 'status', 'created_at'] as const;
 
+function validateDescription(description: unknown): string | null {
+  if (description === undefined || description === null) return null;
+  if (typeof description !== 'string' || description.length > 60) {
+    return '"description" must be a string of at most 60 characters';
+  }
+  return null;
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const all = req.query.all === 'true';
@@ -68,6 +76,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: '"name" is required' });
       return;
     }
+    const descriptionError = validateDescription(req.body?.description);
+    if (descriptionError) {
+      res.status(400).json({ error: descriptionError });
+      return;
+    }
     const product = await createProduct(req.body);
     res.status(201).json(product);
   } catch (err) {
@@ -77,6 +90,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
 
 router.put('/:id', requirePermission('manage_products'), async (req, res, next) => {
   try {
+    const descriptionError = validateDescription(req.body?.description);
+    if (descriptionError) {
+      res.status(400).json({ error: descriptionError });
+      return;
+    }
     const updated = await updateProduct(req.params.id, req.body ?? {});
     if (!updated) {
       res.status(404).json({ error: `Product not found: ${req.params.id}` });
