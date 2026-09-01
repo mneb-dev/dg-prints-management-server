@@ -10,12 +10,23 @@
 -- which preserves the data without deleting it but is not a value the app will
 -- match against until fixed by hand.
 
-alter table product_pricing alter column applies_to drop default;
-alter table product_pricing
-  alter column applies_to type text using applies_to #>> '{}';
-alter table product_pricing
-  alter column applies_to set default 'All';
-alter table product_pricing alter column applies_to set not null;
+-- Only convert if a prior out-of-band change actually widened the column to jsonb;
+-- on a database built fresh from these migrations, applies_to was created as text
+-- in 20260828193329_create_product_tables.sql and this is a no-op.
+do $$
+begin
+  if (
+    select data_type from information_schema.columns
+     where table_name = 'product_pricing' and column_name = 'applies_to'
+  ) in ('json', 'jsonb') then
+    alter table product_pricing alter column applies_to drop default;
+    alter table product_pricing
+      alter column applies_to type text using applies_to #>> '{}';
+    alter table product_pricing
+      alter column applies_to set default 'All';
+    alter table product_pricing alter column applies_to set not null;
+  end if;
+end $$;
 
 create or replace function upsert_product(payload jsonb)
 returns uuid
