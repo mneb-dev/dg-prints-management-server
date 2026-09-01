@@ -19,7 +19,7 @@ export function createApp() {
   // NodeNext resolvers (observed on Vercel's Linux build) resolve to a
   // non-callable type even though the runtime export is a callable function.
   app.use((helmet as any)());
-  app.use(cors({ origin: CORS_ORIGIN || undefined }));
+  app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : undefined));
   app.use(morgan('dev'));
   app.use(express.json());
 
