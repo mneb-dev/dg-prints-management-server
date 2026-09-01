@@ -8,8 +8,6 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git branch:*)",
-      "Bash(git checkout:*)",
-      "Bash(git merge:*)",
       "Bash(vercel ls:*)",
       "Bash(vercel inspect:*)",
       "Bash(curl:*)"
