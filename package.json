@@ -10,7 +10,8 @@
     "start": "cross-env NODE_ENV=production node dist/server.js",
     "start:dev": "cross-env NODE_ENV=development node dist/server.js",
     "seed:superadmin": "cross-env NODE_ENV=development tsx scripts/seed-superadmin.ts",
-    "seed:superadmin:prod": "cross-env NODE_ENV=production tsx scripts/seed-superadmin.ts"
+    "seed:superadmin:prod": "cross-env NODE_ENV=production tsx scripts/seed-superadmin.ts",
+    "db:clone-schema": "tsx scripts/clone-schema.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
@@ -29,7 +30,9 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.14.10",
+    "@types/pg": "^8.11.10",
     "cross-env": "^10.1.0",
+    "pg": "^8.13.1",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3"
   }
