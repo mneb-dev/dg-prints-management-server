@@ -14,7 +14,10 @@ import usersRouter from './routes/users.js';
 export function createApp() {
   const app = express();
 
-  app.use(helmet());
+  // Cast: helmet's package "exports" map lacks a "types" condition, which some
+  // NodeNext resolvers (observed on Vercel's Linux build) resolve to a
+  // non-callable type even though the runtime export is a callable function.
+  app.use((helmet as any)());
   app.use(cors());
   app.use(morgan('dev'));
   app.use(express.json());

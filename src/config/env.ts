@@ -1,9 +1,17 @@
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
 import dotenv from 'dotenv';
 
-dotenv.config();
+export const NODE_ENV = process.env.NODE_ENV || 'development';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, '../..');
+const envFile = NODE_ENV === 'production' ? '.env.production' : '.env.development';
+
+dotenv.config({ path: path.resolve(projectRoot, envFile) });
 
 export const PORT = Number(process.env.PORT) || 3000;
-export const NODE_ENV = process.env.NODE_ENV || 'development';
 
 export const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 export const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';

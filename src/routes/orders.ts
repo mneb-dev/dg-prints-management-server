@@ -42,8 +42,25 @@ async function validateActiveProducts(items: unknown): Promise<string | null> {
 
 function validateDescription(description: unknown): string | null {
   if (description === undefined || description === null) return null;
-  if (typeof description !== 'string' || description.length > 20) {
-    return '"description" must be a string of at most 20 characters';
+  if (typeof description !== 'string' || description.length > 60) {
+    return '"description" must be a string of at most 60 characters';
+  }
+  return null;
+}
+
+function validateOrderNotes(notes: unknown): string | null {
+  if (notes === undefined || notes === null) return null;
+  if (typeof notes !== 'string' || notes.length > 20) {
+    return '"notes" must be a string of at most 20 characters';
+  }
+  return null;
+}
+
+function validateAdditionalFeesNotes(additionalFees: unknown, notes: unknown): string | null {
+  if (additionalFees === undefined) return null;
+  const fees = Number(additionalFees);
+  if (Number.isFinite(fees) && fees > 0 && (typeof notes !== 'string' || !notes.trim())) {
+    return '"notes" is required when "additionalFees" is greater than 0';
   }
   return null;
 }
@@ -191,6 +208,16 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       res.status(400).json({ error: descriptionError });
       return;
     }
+    const notesError = validateOrderNotes(req.body?.notes);
+    if (notesError) {
+      res.status(400).json({ error: notesError });
+      return;
+    }
+    const additionalFeesNotesError = validateAdditionalFeesNotes(req.body?.additionalFees, req.body?.notes);
+    if (additionalFeesNotesError) {
+      res.status(400).json({ error: additionalFeesNotesError });
+      return;
+    }
     const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);
     if (shippingAddressError) {
       res.status(400).json({ error: shippingAddressError });
@@ -231,6 +258,16 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const descriptionError = validateDescription(req.body?.description);
     if (descriptionError) {
       res.status(400).json({ error: descriptionError });
+      return;
+    }
+    const notesError = validateOrderNotes(req.body?.notes);
+    if (notesError) {
+      res.status(400).json({ error: notesError });
+      return;
+    }
+    const additionalFeesNotesError = validateAdditionalFeesNotes(req.body?.additionalFees, req.body?.notes);
+    if (additionalFeesNotesError) {
+      res.status(400).json({ error: additionalFeesNotesError });
       return;
     }
     const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);

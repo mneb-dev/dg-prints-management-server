@@ -18,10 +18,14 @@ There is no lint or test runner configured yet.
 
 ### Environment
 
-Copy `.env.example` to `.env` and set:
+`src/config/env.ts` picks the env file to load based on `NODE_ENV` (set via `cross-env` in the npm scripts):
+`.env.development` for `npm run dev`/`npm run seed:superadmin`, `.env.production` for `npm start`/
+`npm run seed:superadmin:prod`. Both are gitignored. Copy `.env.example` to `.env.development` for local dev,
+or `.env.production.example` to `.env.production` for a production deploy, and set:
 - `PORT` (default `3000`)
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — required; `src/config/supabaseClient.ts` throws at startup if
   either is missing.
+- `JWT_SECRET` — required; `src/config/env.ts` throws at startup if missing.
 
 ## Architecture
 
