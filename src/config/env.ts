@@ -24,6 +24,8 @@ export const CORS_ORIGIN = process.env.CORS_ORIGIN ?? '';
 export const SUPERADMIN_USERNAME = process.env.SUPERADMIN_USERNAME ?? '';
 export const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD ?? '';
 
+export const CUSTOMER_RANKING_WINDOW_DAYS = Number(process.env.CUSTOMER_RANKING_WINDOW_DAYS) || 30;
+
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required');
 }
