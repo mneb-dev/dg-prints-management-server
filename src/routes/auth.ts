@@ -37,6 +37,10 @@ router.post('/login', async (req, res, next) => {
       res.status(401).json({ error: 'Invalid username or password' });
       return;
     }
+    if (row.status === 'inactive') {
+      res.status(403).json({ error: 'This account has been deactivated.' });
+      return;
+    }
 
     const payload: AuthPayload = {
       sub: row.id,
@@ -55,6 +59,7 @@ router.post('/login', async (req, res, next) => {
         username: row.username,
         role: row.role,
         permissions: row.permissions ?? [],
+        status: row.status,
       },
     });
   } catch (err) {
@@ -67,6 +72,10 @@ router.get('/me', requireAuth, async (req, res, next) => {
     const user = await getUser(req.user!.sub);
     if (!user) {
       res.status(401).json({ error: 'User no longer exists' });
+      return;
+    }
+    if (user.status === 'inactive') {
+      res.status(403).json({ error: 'This account has been deactivated.' });
       return;
     }
     res.json({ user });

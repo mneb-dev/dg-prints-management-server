@@ -81,17 +81,34 @@ function validateCustomerName(customerName: unknown, required: boolean): string 
   return null;
 }
 
+const PH_MOBILE_PHONE_REGEX = /^(?:\+63|63|0)9\d{9}$/;
+
+function isValidPhMobileNumber(value: string): boolean {
+  return PH_MOBILE_PHONE_REGEX.test(value.replace(/[\s-]/g, ''));
+}
+
+function validateCustomerPhone(customerPhone: unknown): string | null {
+  if (customerPhone === undefined || customerPhone === null || customerPhone === '') return null;
+  if (typeof customerPhone !== 'string' || !isValidPhMobileNumber(customerPhone)) {
+    return '"customerPhone" must be a valid PH mobile number';
+  }
+  return null;
+}
+
 function validateShippingAddress(shippingAddress: unknown): string | null {
   if (shippingAddress === undefined || shippingAddress === null) return null;
   if (typeof shippingAddress !== 'object') {
     return '"shippingAddress" must be an object';
   }
-  const { name, address } = shippingAddress as { name?: unknown; address?: unknown };
+  const { name, address, phone } = shippingAddress as { name?: unknown; address?: unknown; phone?: unknown };
   if (name !== undefined && (typeof name !== 'string' || name.length > 60)) {
     return '"shippingAddress.name" must be a string of at most 60 characters';
   }
   if (address !== undefined && (typeof address !== 'string' || address.length > 250)) {
     return '"shippingAddress.address" must be a string of at most 250 characters';
+  }
+  if (phone !== undefined && (typeof phone !== 'string' || !isValidPhMobileNumber(phone))) {
+    return '"shippingAddress.phone" must be a valid PH mobile number';
   }
   return null;
 }
@@ -224,6 +241,11 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       res.status(400).json({ error: customerNameError });
       return;
     }
+    const customerPhoneError = validateCustomerPhone(req.body?.customerPhone);
+    if (customerPhoneError) {
+      res.status(400).json({ error: customerPhoneError });
+      return;
+    }
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });
@@ -274,6 +296,11 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const customerNameError = validateCustomerName(req.body?.customerName, false);
     if (customerNameError) {
       res.status(400).json({ error: customerNameError });
+      return;
+    }
+    const customerPhoneError = validateCustomerPhone(req.body?.customerPhone);
+    if (customerPhoneError) {
+      res.status(400).json({ error: customerPhoneError });
       return;
     }
     const productError = await validateActiveProducts(req.body?.items);
