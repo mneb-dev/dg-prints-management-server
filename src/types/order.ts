@@ -123,3 +123,14 @@ export interface CustomerRanking {
   totalSpent: number;
   orderCount: number;
 }
+
+// Whole-dataset order KPI aggregates (see `order_stats()` in supabase/migrations/) — powers
+// the dashboard's stat strip and status/payment/channel breakdown cards without the
+// last-100 client-side cap that `fetchRecentOrdersForRankingThunk` is subject to.
+export interface OrderStats {
+  byStatus: Record<string, number>;
+  byPaymentStatus: Record<string, number>;
+  byChannel: Record<string, number>;
+  outstandingBalance: number;
+  totalOrders: number;
+}

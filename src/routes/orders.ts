@@ -4,6 +4,7 @@ import {
   createOrder,
   deleteOrder,
   getOrder,
+  getOrderStats,
   listOrders,
   listTopCustomers,
   updateOrder,
@@ -216,6 +217,16 @@ router.get('/customers/top', async (req, res, next) => {
   try {
     const customers = await listTopCustomers(CUSTOMER_RANKING_WINDOW_DAYS);
     res.json({ customers, windowDays: CUSTOMER_RANKING_WINDOW_DAYS });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Registered before '/:id' so "stats" isn't matched as an order id.
+router.get('/stats', async (req, res, next) => {
+  try {
+    const stats = await getOrderStats();
+    res.json(stats);
   } catch (err) {
     next(err);
   }

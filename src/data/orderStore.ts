@@ -9,6 +9,7 @@ import type {
   OrderItem,
   OrderItemInput,
   OrderItemPricing,
+  OrderStats,
   OrderUpdateInput,
   Payment,
   ShippingAddress,
@@ -272,6 +273,27 @@ export async function listTopCustomers(days: number): Promise<CustomerRanking[]>
     totalSpent: Number(row.total_spent),
     orderCount: Number(row.order_count),
   }));
+}
+
+interface OrderStatsRow {
+  byStatus: Record<string, number>;
+  byPaymentStatus: Record<string, number>;
+  byChannel: Record<string, number>;
+  outstandingBalance: number | string;
+  totalOrders: number | string;
+}
+
+export async function getOrderStats(): Promise<OrderStats> {
+  const { data, error } = await supabase.rpc('order_stats');
+  if (error) throw new Error(error.message);
+  const row = data as unknown as OrderStatsRow;
+  return {
+    byStatus: row.byStatus ?? {},
+    byPaymentStatus: row.byPaymentStatus ?? {},
+    byChannel: row.byChannel ?? {},
+    outstandingBalance: Number(row.outstandingBalance ?? 0),
+    totalOrders: Number(row.totalOrders ?? 0),
+  };
 }
 
 export async function getOrder(id: string): Promise<Order | undefined> {
