@@ -216,6 +216,7 @@ export interface ListOrdersParams {
   pageSize: number;
   search?: string;
   category?: string;
+  /** Comma-separated list of one or more order statuses (a single status has no comma). */
   status?: string;
   paymentStatus?: string;
   dateFrom?: string;
@@ -233,10 +234,13 @@ export interface ListOrdersResult {
 
 export async function listOrders(params: ListOrdersParams): Promise<ListOrdersResult> {
   const { page, pageSize, search, category, status, paymentStatus, dateFrom, dateTo, sortBy, sortDir } = params;
+  const statusList = status
+    ? status.split(',').map((s) => s.trim()).filter(Boolean)
+    : null;
   const { data, error } = await supabase.rpc('list_orders', {
     p_search: search || null,
     p_category: category || null,
-    p_status: status || null,
+    p_status: statusList && statusList.length > 0 ? statusList : null,
     p_payment_status: paymentStatus || null,
     p_date_from: dateFrom || null,
     p_date_to: dateTo || null,
