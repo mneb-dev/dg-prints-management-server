@@ -5,9 +5,14 @@ export interface ProductOption {
   values: string[];
 }
 
+export interface AppliesToCondition {
+  optionId: string;
+  value: string;
+}
+
 export interface ProductPricing {
   id: string;
-  appliesTo: string;
+  appliesTo: 'All' | AppliesToCondition[];
   pricingType: string;
   packageName?: string;
   price: number;

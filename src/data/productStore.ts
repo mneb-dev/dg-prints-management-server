@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { supabase } from '../config/supabaseClient.js';
 import type { Product, ProductInput, ProductOption, ProductPricing } from '../types/product.js';
 
+type AppliesTo = ProductPricing['appliesTo'];
+
 interface ValueRow {
   id: string;
   value: string;
@@ -19,7 +21,7 @@ interface OptionRow {
 
 interface PricingRow {
   id: string;
-  applies_to: string;
+  applies_to: AppliesTo;
   pricing_type: string;
   package_name: string | null;
   price: number | string;
