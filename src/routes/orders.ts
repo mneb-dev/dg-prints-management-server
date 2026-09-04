@@ -13,7 +13,6 @@ import { getProduct } from '../data/productStore.js';
 import { getUser } from '../data/userStore.js';
 import { CUSTOMER_RANKING_WINDOW_DAYS } from '../config/env.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { emitOrderCreated, emitOrderDeleted, emitOrderUpdated } from '../realtime/io.js';
 import { parseLimit, parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
@@ -289,7 +288,6 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       return;
     }
     const order = await createOrder(req.body, req.user!.sub);
-    emitOrderCreated(order);
     res.status(201).json(order);
   } catch (err) {
     next(err);
@@ -351,7 +349,6 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;
     }
-    emitOrderUpdated(updated);
     res.json(updated);
   } catch (err) {
     next(err);
@@ -365,7 +362,6 @@ router.delete('/:id', requirePermission('manage_orders'), async (req, res, next)
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;
     }
-    emitOrderDeleted(req.params.id);
     res.status(204).send();
   } catch (err) {
     next(err);
