@@ -16,15 +16,24 @@ export function initSocketServer(httpServer: http.Server): Server {
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (typeof token !== 'string' || !token) {
+      console.log(`[socket] rejected ${socket.id}: missing token`);
       next(new Error('unauthorized'));
       return;
     }
     try {
       socket.data.user = verifyToken(token);
       next();
-    } catch {
+    } catch (err) {
+      console.log(`[socket] rejected ${socket.id}: ${err instanceof Error ? err.message : err}`);
       next(new Error('unauthorized'));
     }
+  });
+
+  io.on('connection', (socket) => {
+    console.log(`[socket] connected ${socket.id} (user ${socket.data.user?.username}); ${io?.engine.clientsCount} client(s) total`);
+    socket.on('disconnect', (reason) => {
+      console.log(`[socket] disconnected ${socket.id} (user ${socket.data.user?.username}): ${reason}; ${io?.engine.clientsCount} client(s) total`);
+    });
   });
 
   return io;
