@@ -20,6 +20,10 @@ declare global {
   }
 }
 
+export function verifyToken(token: string): AuthPayload {
+  return jwt.verify(token, JWT_SECRET) as AuthPayload;
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
@@ -28,7 +32,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 
   try {
-    req.user = jwt.verify(header.slice('Bearer '.length), JWT_SECRET) as AuthPayload;
+    req.user = verifyToken(header.slice('Bearer '.length));
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
