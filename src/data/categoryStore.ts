@@ -3,12 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { supabase } from '../config/supabaseClient.js';
 import type { Category, CategoryInput } from '../types/category.js';
 
-const CATEGORY_SELECT = 'id, name, active, created_at, updated_at';
+const CATEGORY_SELECT = 'id, name, active, status_flow, created_at, updated_at';
+
+const DEFAULT_STATUS_FLOW = ['pending', 'released'];
 
 interface CategoryRow {
   id: string;
   name: string;
   active: boolean;
+  status_flow: string[];
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +21,7 @@ function mapRowToCategory(row: CategoryRow): Category {
     id: row.id,
     name: row.name,
     active: row.active,
+    statusFlow: row.status_flow,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -62,6 +66,7 @@ export async function createCategory(input: CategoryInput): Promise<Category> {
       id: randomUUID(),
       name,
       active: input.active ?? true,
+      status_flow: input.statusFlow ?? DEFAULT_STATUS_FLOW,
     })
     .select(CATEGORY_SELECT)
     .single();
@@ -83,6 +88,7 @@ export async function updateCategory(
   const trimmedName = input.name !== undefined ? input.name.trim() : undefined;
   if (trimmedName !== undefined) update.name = trimmedName;
   if (input.active !== undefined) update.active = input.active;
+  if (input.statusFlow !== undefined) update.status_flow = input.statusFlow;
 
   const { data, error } = await supabase
     .from('categories')

@@ -35,6 +35,7 @@ interface ProductRow {
   category: string;
   description: string;
   status: string;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
   options: OptionRow[];
@@ -42,7 +43,7 @@ interface ProductRow {
 }
 
 const PRODUCT_SELECT = `
-  id, name, category, description, status, created_at, updated_at,
+  id, name, category, description, status, deleted_at, created_at, updated_at,
   options:product_options ( id, name, required, sort_order,
     values:product_option_values ( id, value, sort_order ) ),
   pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order )
@@ -77,6 +78,7 @@ function mapRowToProduct(row: ProductRow): Product {
     category: row.category,
     description: row.description,
     status: row.status,
+    deletedAt: row.deleted_at ?? null,
     options,
     pricing,
     createdAt: row.created_at,
@@ -214,6 +216,7 @@ export async function createProduct(input: ProductInput): Promise<Product> {
     category: input.category ?? '',
     description: input.description ?? '',
     status: input.status ?? 'Active',
+    deletedAt: null,
     options,
     pricing: normalizePricing(input.pricing, idMap, true),
     createdAt: now,
@@ -258,7 +261,24 @@ export async function updateProduct(
 }
 
 export async function deleteProduct(id: string): Promise<boolean> {
-  const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
+  const { count, error: countError } = await supabase
+    .from('order_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('product_id', id);
+  if (countError) throw new Error(countError.message);
+
+  if ((count ?? 0) === 0) {
+    const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
+    if (error) throw new Error(error.message);
+    return (data?.length ?? 0) > 0;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('deleted_at', null)
+    .select('id');
   if (error) throw new Error(error.message);
   return (data?.length ?? 0) > 0;
 }

@@ -14,12 +14,42 @@ const router = Router();
 
 router.use(requireAuth);
 
+// Non-terminal order statuses a category's workflow can be built from — same set and
+// order as CATEGORY_STATUS_FLOW_OPTIONS in the frontend's order-status.ts. `cancelled`/
+// `refunded` are excluded: those stay universal, not part of a category's configured flow.
+const CATEGORY_STATUS_OPTIONS = [
+  'pending',
+  'layout',
+  'trace',
+  'print',
+  'cut',
+  'pack',
+  'pickup',
+  'released',
+];
+
 function validateName(name: unknown): string | null {
   if (typeof name !== 'string' || !name.trim()) {
     return '"name" is required';
   }
   if (name.trim().length > 60) {
     return '"name" must be at most 60 characters';
+  }
+  return null;
+}
+
+function validateStatusFlow(statusFlow: unknown): string | null {
+  if (!Array.isArray(statusFlow) || statusFlow.length === 0) {
+    return '"statusFlow" must be a non-empty array';
+  }
+  if (!statusFlow.every((status) => typeof status === 'string' && CATEGORY_STATUS_OPTIONS.includes(status))) {
+    return `"statusFlow" may only contain: ${CATEGORY_STATUS_OPTIONS.join(', ')}`;
+  }
+  if (new Set(statusFlow).size !== statusFlow.length) {
+    return '"statusFlow" cannot contain duplicate statuses';
+  }
+  if (!statusFlow.includes('pending') || !statusFlow.includes('released')) {
+    return '"statusFlow" must include both "pending" and "released"';
   }
   return null;
 }
@@ -53,6 +83,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: nameError });
       return;
     }
+    const statusFlowError = validateStatusFlow(req.body?.statusFlow ?? ['pending', 'released']);
+    if (statusFlowError) {
+      res.status(400).json({ error: statusFlowError });
+      return;
+    }
     const category = await createCategory(req.body ?? {});
     res.status(201).json(category);
   } catch (err) {
@@ -70,6 +105,13 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
       const nameError = validateName(req.body.name);
       if (nameError) {
         res.status(400).json({ error: nameError });
+        return;
+      }
+    }
+    if (req.body?.statusFlow !== undefined) {
+      const statusFlowError = validateStatusFlow(req.body.statusFlow);
+      if (statusFlowError) {
+        res.status(400).json({ error: statusFlowError });
         return;
       }
     }

@@ -37,7 +37,9 @@ async function validateActiveProducts(items: unknown): Promise<string | null> {
   if (missingIndex !== -1) {
     return `Product not found: ${ids[missingIndex]}`;
   }
-  const inactive = products.find((product) => product && product.status !== 'Active');
+  const inactive = products.find(
+    (product) => product && (product.status !== 'Active' || product.deletedAt)
+  );
   if (inactive) {
     return `Cannot save order: product "${inactive.name}" is inactive.`;
   }

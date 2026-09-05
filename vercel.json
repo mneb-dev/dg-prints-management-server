@@ -1,4 +1,5 @@
 {
   "framework": null,
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "crons": [{ "path": "/api/internal/process-recurring-expenses", "schedule": "0 0 * * *" }]
 }
