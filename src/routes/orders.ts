@@ -44,14 +44,6 @@ async function validateActiveProducts(items: unknown): Promise<string | null> {
   return null;
 }
 
-function validateDescription(description: unknown): string | null {
-  if (description === undefined || description === null) return null;
-  if (typeof description !== 'string' || description.length > 60) {
-    return '"description" must be a string of at most 60 characters';
-  }
-  return null;
-}
-
 function validateOrderNotes(notes: unknown): string | null {
   if (notes === undefined || notes === null) return null;
   if (typeof notes !== 'string' || notes.length > 20) {
@@ -262,11 +254,6 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       res.status(400).json({ error: productError });
       return;
     }
-    const descriptionError = validateDescription(req.body?.description);
-    if (descriptionError) {
-      res.status(400).json({ error: descriptionError });
-      return;
-    }
     const notesError = validateOrderNotes(req.body?.notes);
     if (notesError) {
       res.status(400).json({ error: notesError });
@@ -317,11 +304,6 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });
-      return;
-    }
-    const descriptionError = validateDescription(req.body?.description);
-    if (descriptionError) {
-      res.status(400).json({ error: descriptionError });
       return;
     }
     const notesError = validateOrderNotes(req.body?.notes);

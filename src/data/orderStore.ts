@@ -40,7 +40,6 @@ interface OrderRow {
   discount: number | string;
   total: number | string;
   notes: string;
-  description: string;
   channel: string;
   additional_fees: number | string;
   layout_fee: number | string;
@@ -63,7 +62,7 @@ interface OrderRow {
 
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
-  subtotal, discount, total, notes, description, channel, additional_fees, layout_fee,
+  subtotal, discount, total, notes, channel, additional_fees, layout_fee,
   created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
@@ -122,7 +121,6 @@ function mapRowToOrder(row: OrderRow): Order {
     discount: Number(row.discount),
     total: Number(row.total),
     notes: row.notes,
-    description: row.description,
     channel: row.channel,
     additionalFees: Number(row.additional_fees),
     layoutFee: Number(row.layout_fee),
@@ -153,7 +151,6 @@ function toRpcPayload(order: Order) {
     discount: order.discount,
     total: order.total,
     notes: order.notes,
-    description: order.description,
     channel: order.channel,
     additional_fees: order.additionalFees,
     layout_fee: order.layoutFee,
@@ -203,6 +200,7 @@ function normalizeItems(
       height: item.pricing?.height,
       packageName: item.pricing?.packageName,
       size: item.pricing?.size,
+      displaySize: item.pricing?.displaySize,
     },
     lineTotal: item.lineTotal ?? 0,
     stickerQuotationPackage: item.stickerQuotationPackage,
@@ -342,7 +340,6 @@ export async function createOrder(input: OrderInput, actorId: string): Promise<O
     discount: input.discount ?? 0,
     total: input.total ?? 0,
     notes: input.notes ?? '',
-    description: input.description ?? '',
     channel: input.channel ?? '',
     additionalFees: input.additionalFees ?? 0,
     layoutFee: input.layoutFee ?? 0,
