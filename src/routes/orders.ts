@@ -63,6 +63,20 @@ function validateAdditionalFeesNotes(additionalFees: unknown, notes: unknown): s
   return null;
 }
 
+async function validateLayoutBy(layoutFee: unknown, layoutBy: unknown): Promise<string | null> {
+  if (layoutFee === undefined) return null;
+  const fee = Number(layoutFee);
+  if (!Number.isFinite(fee) || fee <= 0) return null;
+  if (typeof layoutBy !== 'string' || !layoutBy.trim()) {
+    return '"layoutBy" is required when "layoutFee" is greater than 0';
+  }
+  const user = await getUser(layoutBy);
+  if (!user) {
+    return `User not found: ${layoutBy}`;
+  }
+  return null;
+}
+
 function validateCustomerName(customerName: unknown, required: boolean): string | null {
   if (customerName === undefined || customerName === null) {
     return required ? '"customerName" is required' : null;
@@ -266,6 +280,11 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       res.status(400).json({ error: additionalFeesNotesError });
       return;
     }
+    const layoutByError = await validateLayoutBy(req.body?.layoutFee, req.body?.layoutBy);
+    if (layoutByError) {
+      res.status(400).json({ error: layoutByError });
+      return;
+    }
     const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);
     if (shippingAddressError) {
       res.status(400).json({ error: shippingAddressError });
@@ -316,6 +335,11 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const additionalFeesNotesError = validateAdditionalFeesNotes(req.body?.additionalFees, req.body?.notes);
     if (additionalFeesNotesError) {
       res.status(400).json({ error: additionalFeesNotesError });
+      return;
+    }
+    const layoutByError = await validateLayoutBy(req.body?.layoutFee, req.body?.layoutBy);
+    if (layoutByError) {
+      res.status(400).json({ error: layoutByError });
       return;
     }
     const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);

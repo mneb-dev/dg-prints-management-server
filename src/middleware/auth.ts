@@ -55,3 +55,16 @@ export function requirePermission(...keys: PermissionKey[]) {
     next();
   };
 }
+
+/** Superadmin always passes; any other role needs every listed permission —
+ * an OR between role and permission rather than `requireRole`/`requirePermission`'s AND. */
+export function requireSuperadminOrPermission(...keys: PermissionKey[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const user = req.user;
+    if (!user || (user.role !== 'superadmin' && !keys.every((key) => user.permissions.includes(key)))) {
+      res.status(403).json({ error: 'Insufficient permissions' });
+      return;
+    }
+    next();
+  };
+}

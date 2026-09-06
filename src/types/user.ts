@@ -5,7 +5,8 @@ export const PERMISSION_KEYS = [
   'manage_products',
   'manage_orders',
   'manage_users',
-  'view_reports',
+  'manage_expenses',
+  'manage_settings',
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
@@ -28,3 +29,12 @@ export interface User {
 export type UserInput = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>> & {
   password?: string;
 };
+
+// Lean projection for non-admin-gated pickers (e.g. the order "Layout by" field) —
+// no role/permissions/username exposed.
+export interface UserOption {
+  id: string;
+  firstName: string;
+  lastName: string;
+  status: UserStatus;
+}

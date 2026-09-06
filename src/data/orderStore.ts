@@ -43,6 +43,10 @@ interface OrderRow {
   channel: string;
   additional_fees: number | string;
   layout_fee: number | string;
+  layout_by: string | null;
+  // Present (joined/computed) on list_orders' RPC rows; absent on getOrder's
+  // plain-column select — getOrder resolves the name itself after fetching.
+  layout_by_name?: string;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -62,7 +66,7 @@ interface OrderRow {
 
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
-  subtotal, discount, total, notes, channel, additional_fees, layout_fee,
+  subtotal, discount, total, notes, channel, additional_fees, layout_fee, layout_by,
   created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
@@ -124,6 +128,8 @@ function mapRowToOrder(row: OrderRow): Order {
     channel: row.channel,
     additionalFees: Number(row.additional_fees),
     layoutFee: Number(row.layout_fee),
+    layoutBy: row.layout_by,
+    layoutByName: row.layout_by_name ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
@@ -154,6 +160,7 @@ function toRpcPayload(order: Order) {
     channel: order.channel,
     additional_fees: order.additionalFees,
     layout_fee: order.layoutFee,
+    layout_by: order.layoutBy,
     created_at: order.createdAt,
     created_by: order.createdBy,
     status_updated_by: order.statusUpdatedBy,
@@ -308,11 +315,12 @@ export async function getOrder(id: string): Promise<Order | undefined> {
   if (!data) return undefined;
 
   const order = mapRowToOrder(data as unknown as OrderRow);
-  const [createdByName, statusUpdatedByName] = await Promise.all([
+  const [createdByName, statusUpdatedByName, layoutByName] = await Promise.all([
     order.createdBy ? resolveActorName(order.createdBy) : Promise.resolve(''),
     order.statusUpdatedBy ? resolveActorName(order.statusUpdatedBy) : Promise.resolve(''),
+    order.layoutBy ? resolveActorName(order.layoutBy) : Promise.resolve(''),
   ]);
-  return { ...order, createdByName, statusUpdatedByName };
+  return { ...order, createdByName, statusUpdatedByName, layoutByName };
 }
 
 async function resolveActorName(actorId: string): Promise<string> {
@@ -343,6 +351,8 @@ export async function createOrder(input: OrderInput, actorId: string): Promise<O
     channel: input.channel ?? '',
     additionalFees: input.additionalFees ?? 0,
     layoutFee: input.layoutFee ?? 0,
+    layoutBy: input.layoutBy ?? null,
+    layoutByName: '',
     createdAt: now,
     updatedAt: now,
     createdBy: actorId,

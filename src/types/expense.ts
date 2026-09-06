@@ -10,8 +10,8 @@ export const EXPENSE_CATEGORIES = [
 ] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
-export const EXPENSE_PAYMENT_METHODS = ['Cash', 'GCash', 'Maya', 'Debit/Credit Card'] as const;
-export type ExpensePaymentMethod = (typeof EXPENSE_PAYMENT_METHODS)[number];
+// Payment methods are a shared, admin-managed catalog (see the payment_methods
+// table / catalogRoutes.ts) — same one used by orders, not an expense-specific enum.
 
 export const RECURRENCE_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
 export type RecurrenceFrequency = (typeof RECURRENCE_FREQUENCIES)[number];

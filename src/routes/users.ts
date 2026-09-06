@@ -5,14 +5,32 @@ import {
   deleteUser,
   findSuperadminId,
   getUser,
+  listUserOptions,
   listUsers,
   updateUser,
 } from '../data/userStore.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
-import type { UserInput } from '../types/user.js';
+import { ROLES } from '../types/user.js';
+import type { Role, UserInput } from '../types/user.js';
+import { generateStrongPassword, isStrongPassword, PASSWORD_REQUIREMENTS_MESSAGE } from '../utils/password.js';
 import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
+
+// Not gated behind requireRole/requirePermission below — any authenticated user can
+// list active users for pickers (e.g. the order "Layout by" field). Registered before
+// the blanket admin-only gate so it isn't caught by it, and before '/:id' so "options"
+// isn't matched as a user id.
+router.get('/options', requireAuth, async (req, res, next) => {
+  try {
+    const roleParam = typeof req.query.role === 'string' ? req.query.role : undefined;
+    const role = roleParam && (ROLES as readonly string[]).includes(roleParam) ? (roleParam as Role) : undefined;
+    const options = await listUserOptions(req.query.includeInactive === 'true', role);
+    res.json(options);
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.use(requireAuth, requireRole('admin', 'superadmin'), requirePermission('manage_users'));
 
@@ -67,11 +85,13 @@ router.get('/:id', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const input = (req.body ?? {}) as UserInput;
-    const { firstName, lastName, username, password } = input;
-    if (!firstName || !lastName || !username || !password) {
-      res
-        .status(400)
-        .json({ error: '"firstName", "lastName", "username", and "password" are required' });
+    const { firstName, lastName, username } = input;
+    if (!firstName || !lastName || !username) {
+      res.status(400).json({ error: '"firstName", "lastName", and "username" are required' });
+      return;
+    }
+    if (input.password && !isStrongPassword(input.password)) {
+      res.status(400).json({ error: PASSWORD_REQUIREMENTS_MESSAGE });
       return;
     }
 
@@ -105,6 +125,11 @@ router.put('/:id', async (req, res, next) => {
 
     const input = (req.body ?? {}) as UserInput;
 
+    if (input.password && !isStrongPassword(input.password)) {
+      res.status(400).json({ error: PASSWORD_REQUIREMENTS_MESSAGE });
+      return;
+    }
+
     if (req.user!.sub === req.params.id && input.status === 'inactive') {
       res.status(403).json({ error: 'You cannot deactivate your own account.' });
       return;
@@ -126,6 +151,30 @@ router.put('/:id', async (req, res, next) => {
       res.status(409).json({ error: SUPERADMIN_CONFLICT_ERROR });
       return;
     }
+    next(err);
+  }
+});
+
+router.post('/:id/reset-password', async (req, res, next) => {
+  try {
+    const existing = await getUser(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: `User not found: ${req.params.id}` });
+      return;
+    }
+    if (req.user!.role === 'admin' && existing.role === 'superadmin') {
+      res.status(403).json({ error: 'An admin cannot reset a superadmin account.' });
+      return;
+    }
+
+    const password = generateStrongPassword();
+    const updated = await updateUser(req.params.id, { password });
+    if (!updated) {
+      res.status(404).json({ error: `User not found: ${req.params.id}` });
+      return;
+    }
+    res.json({ password });
+  } catch (err) {
     next(err);
   }
 });
