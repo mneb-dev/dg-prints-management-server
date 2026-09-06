@@ -29,3 +29,12 @@ export interface User {
 export type UserInput = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>> & {
   password?: string;
 };
+
+// Lean projection for non-admin-gated pickers (e.g. the order "Layout by" field) —
+// no role/permissions/username exposed.
+export interface UserOption {
+  id: string;
+  firstName: string;
+  lastName: string;
+  status: UserStatus;
+}

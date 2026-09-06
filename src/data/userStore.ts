@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 
 import { supabase } from '../config/supabaseClient.js';
-import type { PermissionKey, Role, User, UserInput, UserStatus } from '../types/user.js';
+import type { PermissionKey, Role, User, UserInput, UserOption, UserStatus } from '../types/user.js';
 import { generateStrongPassword } from '../utils/password.js';
 
 const PUBLIC_USER_SELECT =
@@ -77,6 +77,37 @@ export async function listUsers(params: ListUsersParams): Promise<ListUsersResul
     page,
     pageSize,
   };
+}
+
+/**
+ * Lean, non-admin-gated user listing for pickers (e.g. the order "Layout by"
+ * field, or the dashboard sales-by-creator filter) — id/name/status only, no
+ * role/permissions/username exposed. Defaults to active users only; pass
+ * `includeInactive: true` (e.g. for the sales filter, where past orders may
+ * belong to former staff) to list everyone regardless of status. Pass `role`
+ * to further restrict the roster to one role (e.g. a staff viewer's sales
+ * filter should only ever see other staff, never admin/superadmin) — this is
+ * a request-side filter only, `role` itself is never included in the response.
+ */
+export async function listUserOptions(includeInactive = false, role?: Role): Promise<UserOption[]> {
+  let query = supabase
+    .from('users')
+    .select('id, first_name, last_name, status')
+    .order('first_name', { ascending: true });
+  if (!includeInactive) {
+    query = query.eq('status', 'active');
+  }
+  if (role) {
+    query = query.eq('role', role);
+  }
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data as unknown as Pick<UserRow, 'id' | 'first_name' | 'last_name' | 'status'>[]).map((row) => ({
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    status: row.status,
+  }));
 }
 
 export async function getUser(id: string): Promise<User | undefined> {

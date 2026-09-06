@@ -5,15 +5,32 @@ import {
   deleteUser,
   findSuperadminId,
   getUser,
+  listUserOptions,
   listUsers,
   updateUser,
 } from '../data/userStore.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
-import type { UserInput } from '../types/user.js';
+import { ROLES } from '../types/user.js';
+import type { Role, UserInput } from '../types/user.js';
 import { generateStrongPassword, isStrongPassword, PASSWORD_REQUIREMENTS_MESSAGE } from '../utils/password.js';
 import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
+
+// Not gated behind requireRole/requirePermission below — any authenticated user can
+// list active users for pickers (e.g. the order "Layout by" field). Registered before
+// the blanket admin-only gate so it isn't caught by it, and before '/:id' so "options"
+// isn't matched as a user id.
+router.get('/options', requireAuth, async (req, res, next) => {
+  try {
+    const roleParam = typeof req.query.role === 'string' ? req.query.role : undefined;
+    const role = roleParam && (ROLES as readonly string[]).includes(roleParam) ? (roleParam as Role) : undefined;
+    const options = await listUserOptions(req.query.includeInactive === 'true', role);
+    res.json(options);
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.use(requireAuth, requireRole('admin', 'superadmin'), requirePermission('manage_users'));
 
