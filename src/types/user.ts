@@ -5,7 +5,7 @@ export const PERMISSION_KEYS = [
   'manage_products',
   'manage_orders',
   'manage_users',
-  'view_reports',
+  'manage_expenses',
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 

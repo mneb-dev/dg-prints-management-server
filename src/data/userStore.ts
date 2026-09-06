@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 
 import { supabase } from '../config/supabaseClient.js';
 import type { PermissionKey, Role, User, UserInput, UserStatus } from '../types/user.js';
+import { generateStrongPassword } from '../utils/password.js';
 
 const PUBLIC_USER_SELECT =
   'id, first_name, last_name, username, role, permissions, avatar, status, created_at, updated_at';
@@ -119,8 +120,7 @@ export async function getUserByIdWithHash(id: string): Promise<UserRowWithHash |
 }
 
 export async function createUser(input: UserInput): Promise<User> {
-  if (!input.password) throw new Error('"password" is required');
-  const passwordHash = await bcrypt.hash(input.password, 10);
+  const passwordHash = await bcrypt.hash(input.password || generateStrongPassword(), 10);
 
   const { data, error } = await supabase
     .from('users')

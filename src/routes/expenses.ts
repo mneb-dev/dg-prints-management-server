@@ -13,13 +13,13 @@ import {
   listRecurringExpenses,
   updateRecurringExpense,
 } from '../data/recurringExpenseStore.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_METHODS, RECURRENCE_FREQUENCIES } from '../types/expense.js';
 import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requirePermission('manage_expenses'));
 
 const EXPENSE_SORT_KEYS = ['date', 'amount', 'category', 'created_at'] as const;
 

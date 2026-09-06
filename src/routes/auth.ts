@@ -10,18 +10,9 @@ import {
   updateUser,
 } from '../data/userStore.js';
 import { requireAuth, type AuthPayload } from '../middleware/auth.js';
+import { isStrongPassword, PASSWORD_REQUIREMENTS_MESSAGE } from '../utils/password.js';
 
 const router = Router();
-
-function isStrongPassword(password: string): boolean {
-  return (
-    password.length >= 8 &&
-    /[a-z]/.test(password) &&
-    /[A-Z]/.test(password) &&
-    /\d/.test(password) &&
-    /[^A-Za-z0-9]/.test(password)
-  );
-}
 
 router.post('/login', async (req, res, next) => {
   try {
@@ -114,10 +105,7 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
       return;
     }
     if (typeof newPassword !== 'string' || !isStrongPassword(newPassword)) {
-      res.status(400).json({
-        error:
-          'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character.',
-      });
+      res.status(400).json({ error: PASSWORD_REQUIREMENTS_MESSAGE });
       return;
     }
 
