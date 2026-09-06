@@ -6,7 +6,10 @@ import morgan from 'morgan';
 import { CORS_ORIGIN } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
+import categoriesRouter from './routes/categories.js';
+import expensesRouter from './routes/expenses.js';
 import healthRouter from './routes/health.js';
+import internalRouter from './routes/internal.js';
 import ordersRouter from './routes/orders.js';
 import productsRouter from './routes/products.js';
 import testRouter from './routes/test.js';
@@ -27,8 +30,11 @@ export function createApp() {
   app.use('/api/test', testRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/products', productsRouter);
+  app.use('/api/categories', categoriesRouter);
   app.use('/api/orders', ordersRouter);
   app.use('/api/users', usersRouter);
+  app.use('/api/expenses', expensesRouter);
+  app.use('/api/internal', internalRouter);
 
   app.use(notFound);
   app.use(errorHandler);

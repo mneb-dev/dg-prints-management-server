@@ -13,6 +13,9 @@ export interface OrderItemPricing {
   height?: number;
   packageName?: string;
   size?: { width: number; height: number; unit: string };
+  // The value + unit the user entered in the quotation form for "Per Unit" (sq.ft.) pricing,
+  // before conversion to feet for pricing math (`width`/`height` above stay in feet).
+  displaySize?: { width: number; height: number; unit: string };
 }
 
 export interface StickerQuotation {
@@ -64,7 +67,6 @@ export interface Order {
   discount: number;
   total: number;
   notes: string;
-  description: string;
   channel: string;
   additionalFees: number;
   layoutFee: number;
@@ -122,4 +124,15 @@ export interface CustomerRanking {
   shippingAddress: ShippingAddress | null;
   totalSpent: number;
   orderCount: number;
+}
+
+// Whole-dataset order KPI aggregates (see `order_stats()` in supabase/migrations/) — powers
+// the dashboard's stat strip and status/payment/channel breakdown cards without the
+// last-100 client-side cap that `fetchRecentOrdersForRankingThunk` is subject to.
+export interface OrderStats {
+  byStatus: Record<string, number>;
+  byPaymentStatus: Record<string, number>;
+  byChannel: Record<string, number>;
+  outstandingBalance: number;
+  totalOrders: number;
 }

@@ -5,9 +5,14 @@ export interface ProductOption {
   values: string[];
 }
 
+export interface AppliesToCondition {
+  optionId: string;
+  value: string;
+}
+
 export interface ProductPricing {
   id: string;
-  appliesTo: string;
+  appliesTo: 'All' | AppliesToCondition[];
   pricingType: string;
   packageName?: string;
   price: number;
@@ -20,6 +25,7 @@ export interface Product {
   category: string;
   description: string;
   status: string;
+  deletedAt: string | null;
   options: ProductOption[];
   pricing: ProductPricing[];
   createdAt: string;
@@ -27,7 +33,7 @@ export interface Product {
 }
 
 export type ProductInput = Partial<
-  Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'options' | 'pricing'>
+  Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'options' | 'pricing'>
 > & {
   options?: Array<Partial<ProductOption>>;
   pricing?: Array<Partial<ProductPricing>>;

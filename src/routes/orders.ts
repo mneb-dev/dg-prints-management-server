@@ -4,6 +4,7 @@ import {
   createOrder,
   deleteOrder,
   getOrder,
+  getOrderStats,
   listOrders,
   listTopCustomers,
   updateOrder,
@@ -36,17 +37,11 @@ async function validateActiveProducts(items: unknown): Promise<string | null> {
   if (missingIndex !== -1) {
     return `Product not found: ${ids[missingIndex]}`;
   }
-  const inactive = products.find((product) => product && product.status !== 'Active');
+  const inactive = products.find(
+    (product) => product && (product.status !== 'Active' || product.deletedAt)
+  );
   if (inactive) {
     return `Cannot save order: product "${inactive.name}" is inactive.`;
-  }
-  return null;
-}
-
-function validateDescription(description: unknown): string | null {
-  if (description === undefined || description === null) return null;
-  if (typeof description !== 'string' || description.length > 60) {
-    return '"description" must be a string of at most 60 characters';
   }
   return null;
 }
@@ -81,17 +76,34 @@ function validateCustomerName(customerName: unknown, required: boolean): string 
   return null;
 }
 
+const PH_MOBILE_PHONE_REGEX = /^(?:\+63|63|0)9\d{9}$/;
+
+function isValidPhMobileNumber(value: string): boolean {
+  return PH_MOBILE_PHONE_REGEX.test(value.replace(/[\s-]/g, ''));
+}
+
+function validateCustomerPhone(customerPhone: unknown): string | null {
+  if (customerPhone === undefined || customerPhone === null || customerPhone === '') return null;
+  if (typeof customerPhone !== 'string' || !isValidPhMobileNumber(customerPhone)) {
+    return '"customerPhone" must be a valid PH mobile number';
+  }
+  return null;
+}
+
 function validateShippingAddress(shippingAddress: unknown): string | null {
   if (shippingAddress === undefined || shippingAddress === null) return null;
   if (typeof shippingAddress !== 'object') {
     return '"shippingAddress" must be an object';
   }
-  const { name, address } = shippingAddress as { name?: unknown; address?: unknown };
+  const { name, address, phone } = shippingAddress as { name?: unknown; address?: unknown; phone?: unknown };
   if (name !== undefined && (typeof name !== 'string' || name.length > 60)) {
     return '"shippingAddress.name" must be a string of at most 60 characters';
   }
   if (address !== undefined && (typeof address !== 'string' || address.length > 250)) {
     return '"shippingAddress.address" must be a string of at most 250 characters';
+  }
+  if (phone !== undefined && (typeof phone !== 'string' || !isValidPhMobileNumber(phone))) {
+    return '"shippingAddress.phone" must be a valid PH mobile number';
   }
   return null;
 }
@@ -204,6 +216,16 @@ router.get('/customers/top', async (req, res, next) => {
   }
 });
 
+// Registered before '/:id' so "stats" isn't matched as an order id.
+router.get('/stats', async (req, res, next) => {
+  try {
+    const stats = await getOrderStats();
+    res.json(stats);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const order = await getOrder(req.params.id);
@@ -224,14 +246,14 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       res.status(400).json({ error: customerNameError });
       return;
     }
+    const customerPhoneError = validateCustomerPhone(req.body?.customerPhone);
+    if (customerPhoneError) {
+      res.status(400).json({ error: customerPhoneError });
+      return;
+    }
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });
-      return;
-    }
-    const descriptionError = validateDescription(req.body?.description);
-    if (descriptionError) {
-      res.status(400).json({ error: descriptionError });
       return;
     }
     const notesError = validateOrderNotes(req.body?.notes);
@@ -276,14 +298,14 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
       res.status(400).json({ error: customerNameError });
       return;
     }
+    const customerPhoneError = validateCustomerPhone(req.body?.customerPhone);
+    if (customerPhoneError) {
+      res.status(400).json({ error: customerPhoneError });
+      return;
+    }
     const productError = await validateActiveProducts(req.body?.items);
     if (productError) {
       res.status(400).json({ error: productError });
-      return;
-    }
-    const descriptionError = validateDescription(req.body?.description);
-    if (descriptionError) {
-      res.status(400).json({ error: descriptionError });
       return;
     }
     const notesError = validateOrderNotes(req.body?.notes);

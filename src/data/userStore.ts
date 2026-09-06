@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 
 import { supabase } from '../config/supabaseClient.js';
-import type { PermissionKey, Role, User, UserInput } from '../types/user.js';
+import type { PermissionKey, Role, User, UserInput, UserStatus } from '../types/user.js';
 
 const PUBLIC_USER_SELECT =
-  'id, first_name, last_name, username, role, permissions, avatar, created_at, updated_at';
+  'id, first_name, last_name, username, role, permissions, avatar, status, created_at, updated_at';
 
 interface UserRow {
   id: string;
@@ -16,6 +16,7 @@ interface UserRow {
   role: Role;
   permissions: PermissionKey[];
   avatar: string | null;
+  status: UserStatus;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +34,7 @@ function mapRowToUser(row: UserRow): User {
     role: row.role,
     permissions: row.permissions ?? [],
     avatar: row.avatar,
+    status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -43,6 +45,7 @@ export interface ListUsersParams {
   pageSize: number | null;
   search?: string;
   role?: string;
+  status?: string;
   sortBy: string;
   sortDir: 'asc' | 'desc';
 }
@@ -55,7 +58,7 @@ export interface ListUsersResult {
 }
 
 export async function listUsers(params: ListUsersParams): Promise<ListUsersResult> {
-  const { page, pageSize, search, role, sortBy, sortDir } = params;
+  const { page, pageSize, search, role, status, sortBy, sortDir } = params;
   const { data, error } = await supabase.rpc('list_users', {
     p_search: search || null,
     p_role: role || null,
@@ -63,6 +66,7 @@ export async function listUsers(params: ListUsersParams): Promise<ListUsersResul
     p_offset: pageSize === null ? 0 : (page - 1) * pageSize,
     p_sort_by: sortBy,
     p_sort_dir: sortDir,
+    p_status: status || null,
   });
   if (error) throw new Error(error.message);
   const payload = data as unknown as { rows: UserRow[]; total: number };
@@ -129,6 +133,7 @@ export async function createUser(input: UserInput): Promise<User> {
       role: input.role ?? 'staff',
       permissions: input.permissions ?? [],
       avatar: input.avatar ?? null,
+      status: input.status ?? 'active',
     })
     .select(PUBLIC_USER_SELECT)
     .single();
@@ -144,6 +149,7 @@ export async function updateUser(id: string, input: UserInput): Promise<User | u
   if (input.role !== undefined) update.role = input.role;
   if (input.permissions !== undefined) update.permissions = input.permissions;
   if (input.avatar !== undefined) update.avatar = input.avatar;
+  if (input.status !== undefined) update.status = input.status;
   if (input.password) update.password_hash = await bcrypt.hash(input.password, 10);
 
   const { data, error } = await supabase
@@ -160,4 +166,17 @@ export async function deleteUser(id: string): Promise<boolean> {
   const { data, error } = await supabase.from('users').delete().eq('id', id).select('id');
   if (error) throw new Error(error.message);
   return (data?.length ?? 0) > 0;
+}
+
+/**
+ * Returns the id of the current superadmin, if one exists. Pass excludeId
+ * (the id being created/updated) so re-saving the existing superadmin's own
+ * role doesn't look like a conflict with itself.
+ */
+export async function findSuperadminId(excludeId?: string): Promise<string | undefined> {
+  let query = supabase.from('users').select('id').eq('role', 'superadmin');
+  if (excludeId) query = query.neq('id', excludeId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.id;
 }

@@ -9,6 +9,7 @@ import type {
   OrderItem,
   OrderItemInput,
   OrderItemPricing,
+  OrderStats,
   OrderUpdateInput,
   Payment,
   ShippingAddress,
@@ -39,7 +40,6 @@ interface OrderRow {
   discount: number | string;
   total: number | string;
   notes: string;
-  description: string;
   channel: string;
   additional_fees: number | string;
   layout_fee: number | string;
@@ -62,7 +62,7 @@ interface OrderRow {
 
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
-  subtotal, discount, total, notes, description, channel, additional_fees, layout_fee,
+  subtotal, discount, total, notes, channel, additional_fees, layout_fee,
   created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
@@ -121,7 +121,6 @@ function mapRowToOrder(row: OrderRow): Order {
     discount: Number(row.discount),
     total: Number(row.total),
     notes: row.notes,
-    description: row.description,
     channel: row.channel,
     additionalFees: Number(row.additional_fees),
     layoutFee: Number(row.layout_fee),
@@ -152,7 +151,6 @@ function toRpcPayload(order: Order) {
     discount: order.discount,
     total: order.total,
     notes: order.notes,
-    description: order.description,
     channel: order.channel,
     additional_fees: order.additionalFees,
     layout_fee: order.layoutFee,
@@ -202,6 +200,7 @@ function normalizeItems(
       height: item.pricing?.height,
       packageName: item.pricing?.packageName,
       size: item.pricing?.size,
+      displaySize: item.pricing?.displaySize,
     },
     lineTotal: item.lineTotal ?? 0,
     stickerQuotationPackage: item.stickerQuotationPackage,
@@ -215,6 +214,7 @@ export interface ListOrdersParams {
   pageSize: number;
   search?: string;
   category?: string;
+  /** Comma-separated list of one or more order statuses (a single status has no comma). */
   status?: string;
   paymentStatus?: string;
   dateFrom?: string;
@@ -232,10 +232,13 @@ export interface ListOrdersResult {
 
 export async function listOrders(params: ListOrdersParams): Promise<ListOrdersResult> {
   const { page, pageSize, search, category, status, paymentStatus, dateFrom, dateTo, sortBy, sortDir } = params;
+  const statusList = status
+    ? status.split(',').map((s) => s.trim()).filter(Boolean)
+    : null;
   const { data, error } = await supabase.rpc('list_orders', {
     p_search: search || null,
     p_category: category || null,
-    p_status: status || null,
+    p_status: statusList && statusList.length > 0 ? statusList : null,
     p_payment_status: paymentStatus || null,
     p_date_from: dateFrom || null,
     p_date_to: dateTo || null,
@@ -272,6 +275,27 @@ export async function listTopCustomers(days: number): Promise<CustomerRanking[]>
     totalSpent: Number(row.total_spent),
     orderCount: Number(row.order_count),
   }));
+}
+
+interface OrderStatsRow {
+  byStatus: Record<string, number>;
+  byPaymentStatus: Record<string, number>;
+  byChannel: Record<string, number>;
+  outstandingBalance: number | string;
+  totalOrders: number | string;
+}
+
+export async function getOrderStats(): Promise<OrderStats> {
+  const { data, error } = await supabase.rpc('order_stats');
+  if (error) throw new Error(error.message);
+  const row = data as unknown as OrderStatsRow;
+  return {
+    byStatus: row.byStatus ?? {},
+    byPaymentStatus: row.byPaymentStatus ?? {},
+    byChannel: row.byChannel ?? {},
+    outstandingBalance: Number(row.outstandingBalance ?? 0),
+    totalOrders: Number(row.totalOrders ?? 0),
+  };
 }
 
 export async function getOrder(id: string): Promise<Order | undefined> {
@@ -316,7 +340,6 @@ export async function createOrder(input: OrderInput, actorId: string): Promise<O
     discount: input.discount ?? 0,
     total: input.total ?? 0,
     notes: input.notes ?? '',
-    description: input.description ?? '',
     channel: input.channel ?? '',
     additionalFees: input.additionalFees ?? 0,
     layoutFee: input.layoutFee ?? 0,

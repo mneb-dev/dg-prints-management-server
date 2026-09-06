@@ -24,6 +24,20 @@ function validateDescription(description: unknown): string | null {
   return null;
 }
 
+function validatePricing(pricing: unknown): string | null {
+  if (!Array.isArray(pricing) || pricing.length === 0) {
+    return '"pricing" must be a non-empty array';
+  }
+  const hasInvalidEntry = pricing.some((entry) => {
+    const price = (entry as { price?: unknown } | null)?.price;
+    return typeof price !== 'number' || !Number.isFinite(price) || price <= 0;
+  });
+  if (hasInvalidEntry) {
+    return 'each pricing entry must have a "price" greater than 0';
+  }
+  return null;
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const all = req.query.all === 'true';
@@ -81,6 +95,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: descriptionError });
       return;
     }
+    const pricingError = validatePricing(req.body?.pricing);
+    if (pricingError) {
+      res.status(400).json({ error: pricingError });
+      return;
+    }
     const product = await createProduct(req.body);
     res.status(201).json(product);
   } catch (err) {
@@ -94,6 +113,13 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
     if (descriptionError) {
       res.status(400).json({ error: descriptionError });
       return;
+    }
+    if (req.body?.pricing !== undefined) {
+      const pricingError = validatePricing(req.body.pricing);
+      if (pricingError) {
+        res.status(400).json({ error: pricingError });
+        return;
+      }
     }
     const updated = await updateProduct(req.params.id, req.body ?? {});
     if (!updated) {

@@ -26,6 +26,9 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — required; `src/config/supabaseClient.ts` throws at startup if
   either is missing.
 - `JWT_SECRET` — required; `src/config/env.ts` throws at startup if missing.
+- `CRON_SECRET` — required in production; gates `GET /api/internal/process-recurring-expenses` (invoked daily by
+  the Vercel Cron configured in `vercel.json`) via `Authorization: Bearer $CRON_SECRET`, since that route sits
+  outside `requireAuth`/JWT.
 
 ## Architecture
 

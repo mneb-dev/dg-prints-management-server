@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { supabase } from '../config/supabaseClient.js';
 import type { Product, ProductInput, ProductOption, ProductPricing } from '../types/product.js';
 
+type AppliesTo = ProductPricing['appliesTo'];
+
 interface ValueRow {
   id: string;
   value: string;
@@ -19,7 +21,7 @@ interface OptionRow {
 
 interface PricingRow {
   id: string;
-  applies_to: string;
+  applies_to: AppliesTo;
   pricing_type: string;
   package_name: string | null;
   price: number | string;
@@ -33,6 +35,7 @@ interface ProductRow {
   category: string;
   description: string;
   status: string;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
   options: OptionRow[];
@@ -40,7 +43,7 @@ interface ProductRow {
 }
 
 const PRODUCT_SELECT = `
-  id, name, category, description, status, created_at, updated_at,
+  id, name, category, description, status, deleted_at, created_at, updated_at,
   options:product_options ( id, name, required, sort_order,
     values:product_option_values ( id, value, sort_order ) ),
   pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order )
@@ -75,6 +78,7 @@ function mapRowToProduct(row: ProductRow): Product {
     category: row.category,
     description: row.description,
     status: row.status,
+    deletedAt: row.deleted_at ?? null,
     options,
     pricing,
     createdAt: row.created_at,
@@ -111,22 +115,41 @@ function toRpcPayload(product: Product) {
 function normalizeOptions(
   options: ProductInput['options'],
   forceNewIds = false
-): ProductOption[] {
-  return (options ?? []).map((option) => ({
-    id: forceNewIds ? randomUUID() : option.id ?? randomUUID(),
-    name: option.name ?? '',
-    required: option.required ?? false,
-    values: option.values ?? [],
+): { options: ProductOption[]; idMap: Map<string, string> } {
+  const idMap = new Map<string, string>();
+  const normalized = (options ?? []).map((option) => {
+    const id = forceNewIds ? randomUUID() : option.id ?? randomUUID();
+    if (option.id) idMap.set(option.id, id);
+    return {
+      id,
+      name: option.name ?? '',
+      required: option.required ?? false,
+      values: option.values ?? [],
+    };
+  });
+  return { options: normalized, idMap };
+}
+
+// `normalizeOptions` mints fresh option ids on create (and can on update, for
+// brand-new options), so any `appliesTo` condition referencing the id the
+// client sent must be rewritten to the id actually stored — otherwise
+// pricing rows are silently orphaned from their options.
+function remapAppliesTo(appliesTo: AppliesTo | undefined, idMap: Map<string, string>): AppliesTo {
+  if (!appliesTo || appliesTo === 'All') return appliesTo ?? 'All';
+  return appliesTo.map((condition) => ({
+    ...condition,
+    optionId: idMap.get(condition.optionId) ?? condition.optionId,
   }));
 }
 
 function normalizePricing(
   pricing: ProductInput['pricing'],
+  idMap: Map<string, string>,
   forceNewIds = false
 ): ProductPricing[] {
   return (pricing ?? []).map((entry) => ({
     id: forceNewIds ? randomUUID() : entry.id ?? randomUUID(),
-    appliesTo: entry.appliesTo ?? 'All',
+    appliesTo: remapAppliesTo(entry.appliesTo, idMap),
     pricingType: entry.pricingType ?? 'Package',
     packageName: entry.packageName,
     price: entry.price ?? 0,
@@ -186,14 +209,16 @@ export async function getProduct(id: string): Promise<Product | undefined> {
 
 export async function createProduct(input: ProductInput): Promise<Product> {
   const now = new Date().toISOString();
+  const { options, idMap } = normalizeOptions(input.options, true);
   const product: Product = {
     id: randomUUID(),
     name: input.name ?? '',
     category: input.category ?? '',
     description: input.description ?? '',
     status: input.status ?? 'Active',
-    options: normalizeOptions(input.options, true),
-    pricing: normalizePricing(input.pricing, true),
+    deletedAt: null,
+    options,
+    pricing: normalizePricing(input.pricing, idMap, true),
     createdAt: now,
     updatedAt: now,
   };
@@ -213,11 +238,15 @@ export async function updateProduct(
   const existing = await getProduct(id);
   if (!existing) return undefined;
 
+  const { options, idMap } = input.options
+    ? normalizeOptions(input.options)
+    : { options: existing.options, idMap: new Map<string, string>() };
+
   const updated: Product = {
     ...existing,
     ...input,
-    options: input.options ? normalizeOptions(input.options) : existing.options,
-    pricing: input.pricing ? normalizePricing(input.pricing) : existing.pricing,
+    options,
+    pricing: input.pricing ? normalizePricing(input.pricing, idMap) : existing.pricing,
     id: existing.id,
     createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
@@ -232,7 +261,24 @@ export async function updateProduct(
 }
 
 export async function deleteProduct(id: string): Promise<boolean> {
-  const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
+  const { count, error: countError } = await supabase
+    .from('order_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('product_id', id);
+  if (countError) throw new Error(countError.message);
+
+  if ((count ?? 0) === 0) {
+    const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
+    if (error) throw new Error(error.message);
+    return (data?.length ?? 0) > 0;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('deleted_at', null)
+    .select('id');
   if (error) throw new Error(error.message);
   return (data?.length ?? 0) > 0;
 }

@@ -26,6 +26,8 @@ export const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD ?? '';
 
 export const CUSTOMER_RANKING_WINDOW_DAYS = Number(process.env.CUSTOMER_RANKING_WINDOW_DAYS) || 30;
 
+export const CRON_SECRET = process.env.CRON_SECRET ?? '';
+
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required');
 }

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   createUser,
   deleteUser,
+  findSuperadminId,
   getUser,
   listUsers,
   updateUser,
@@ -16,6 +17,8 @@ const router = Router();
 router.use(requireAuth, requireRole('admin', 'superadmin'), requirePermission('manage_users'));
 
 const USER_SORT_KEYS = ['name', 'username', 'role', 'created_at'] as const;
+
+const SUPERADMIN_CONFLICT_ERROR = 'Only one super admin is allowed. Demote the current super admin first.';
 
 router.get('/', async (req, res, next) => {
   try {
@@ -38,6 +41,7 @@ router.get('/', async (req, res, next) => {
       pageSize,
       search: queryString(req.query.search),
       role: queryString(req.query.role),
+      status: queryString(req.query.status),
       sortBy: parseSortBy(req.query.sortBy, USER_SORT_KEYS, 'created_at'),
       sortDir: parseSortDir(req.query.sortDir),
     });
@@ -71,9 +75,18 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
+    if (input.role === 'superadmin' && (await findSuperadminId())) {
+      res.status(409).json({ error: SUPERADMIN_CONFLICT_ERROR });
+      return;
+    }
+
     const user = await createUser(input);
     res.status(201).json(user);
   } catch (err) {
+    if (err instanceof Error && err.message.includes('users_single_superadmin_key')) {
+      res.status(409).json({ error: SUPERADMIN_CONFLICT_ERROR });
+      return;
+    }
     next(err);
   }
 });
@@ -85,7 +98,23 @@ router.put('/:id', async (req, res, next) => {
       res.status(404).json({ error: `User not found: ${req.params.id}` });
       return;
     }
+    if (req.user!.role === 'admin' && existing.role === 'superadmin') {
+      res.status(403).json({ error: 'An admin cannot update a superadmin account.' });
+      return;
+    }
+
     const input = (req.body ?? {}) as UserInput;
+
+    if (req.user!.sub === req.params.id && input.status === 'inactive') {
+      res.status(403).json({ error: 'You cannot deactivate your own account.' });
+      return;
+    }
+
+    if (input.role === 'superadmin' && (await findSuperadminId(req.params.id))) {
+      res.status(409).json({ error: SUPERADMIN_CONFLICT_ERROR });
+      return;
+    }
+
     const updated = await updateUser(req.params.id, input);
     if (!updated) {
       res.status(404).json({ error: `User not found: ${req.params.id}` });
@@ -93,6 +122,10 @@ router.put('/:id', async (req, res, next) => {
     }
     res.json(updated);
   } catch (err) {
+    if (err instanceof Error && err.message.includes('users_single_superadmin_key')) {
+      res.status(409).json({ error: SUPERADMIN_CONFLICT_ERROR });
+      return;
+    }
     next(err);
   }
 });

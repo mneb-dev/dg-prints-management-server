@@ -9,6 +9,9 @@ export const PERMISSION_KEYS = [
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
+export const USER_STATUSES = ['active', 'inactive'] as const;
+export type UserStatus = (typeof USER_STATUSES)[number];
+
 export interface User {
   id: string;
   firstName: string;
@@ -17,6 +20,7 @@ export interface User {
   role: Role;
   permissions: PermissionKey[];
   avatar: string | null;
+  status: UserStatus;
   createdAt: string;
   updatedAt: string;
 }
