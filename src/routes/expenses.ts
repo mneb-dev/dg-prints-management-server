@@ -14,7 +14,7 @@ import {
   updateRecurringExpense,
 } from '../data/recurringExpenseStore.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
-import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_METHODS, RECURRENCE_FREQUENCIES } from '../types/expense.js';
+import { EXPENSE_CATEGORIES, RECURRENCE_FREQUENCIES } from '../types/expense.js';
 import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
@@ -37,12 +37,12 @@ function validateCategory(category: unknown): string | null {
   return null;
 }
 
+// Payment methods are now a shared, admin-managed catalog (see payment_methods
+// table / catalogRoutes.ts) rather than a fixed enum — same leniency as orders.ts,
+// which likewise doesn't check `payment_method` against the catalog server-side.
 function validatePaymentMethod(paymentMethod: unknown): string | null {
-  if (
-    typeof paymentMethod !== 'string' ||
-    !EXPENSE_PAYMENT_METHODS.includes(paymentMethod as (typeof EXPENSE_PAYMENT_METHODS)[number])
-  ) {
-    return `"paymentMethod" must be one of ${EXPENSE_PAYMENT_METHODS.join(', ')}`;
+  if (typeof paymentMethod !== 'string' || !paymentMethod.trim()) {
+    return '"paymentMethod" is required';
   }
   return null;
 }

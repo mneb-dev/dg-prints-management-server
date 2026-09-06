@@ -10,8 +10,11 @@ import categoriesRouter from './routes/categories.js';
 import expensesRouter from './routes/expenses.js';
 import healthRouter from './routes/health.js';
 import internalRouter from './routes/internal.js';
+import orderChannelsRouter from './routes/order-channels.js';
 import ordersRouter from './routes/orders.js';
+import paymentMethodsRouter from './routes/payment-methods.js';
 import productsRouter from './routes/products.js';
+import settingsRouter from './routes/settings.js';
 import testRouter from './routes/test.js';
 import usersRouter from './routes/users.js';
 
@@ -34,6 +37,9 @@ export function createApp() {
   app.use('/api/orders', ordersRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/expenses', expensesRouter);
+  app.use('/api/settings', settingsRouter);
+  app.use('/api/payment-methods', paymentMethodsRouter);
+  app.use('/api/order-channels', orderChannelsRouter);
   app.use('/api/internal', internalRouter);
 
   app.use(notFound);
