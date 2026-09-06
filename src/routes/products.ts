@@ -30,10 +30,10 @@ function validatePricing(pricing: unknown): string | null {
   }
   const hasInvalidEntry = pricing.some((entry) => {
     const price = (entry as { price?: unknown } | null)?.price;
-    return typeof price !== 'number' || !Number.isFinite(price) || price <= 0;
+    return typeof price !== 'number' || !Number.isFinite(price) || price < 0;
   });
   if (hasInvalidEntry) {
-    return 'each pricing entry must have a "price" greater than 0';
+    return 'each pricing entry must have a "price" of 0 or greater';
   }
   return null;
 }
