@@ -6,9 +6,16 @@ import {
   DuplicateCategoryNameError,
   getCategory,
   listCategories,
+  listHotSizes,
   updateCategory,
 } from '../data/categoryStore.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+
+// Union of StickerUnit ("in"/"cm"/"mm") and LengthUnit ("mm"/"cm"/"in"/"ft"/"m") from the
+// frontend — kept generic here since it's the Settings UI's <Select> options, not this
+// route, that scope which subset is offered for a given category.
+const COMMON_SIZE_UNITS = ['mm', 'cm', 'in', 'ft', 'm'];
+const MAX_COMMON_SIZES = 8;
 
 const router = Router();
 
@@ -54,10 +61,45 @@ function validateStatusFlow(statusFlow: unknown): string | null {
   return null;
 }
 
+function validateCommonSizes(commonSizes: unknown): string | null {
+  if (!Array.isArray(commonSizes)) {
+    return '"commonSizes" must be an array';
+  }
+  if (commonSizes.length > MAX_COMMON_SIZES) {
+    return `"commonSizes" may contain at most ${MAX_COMMON_SIZES} entries`;
+  }
+  for (const size of commonSizes) {
+    if (typeof size !== 'object' || size === null) {
+      return '"commonSizes" entries must be objects';
+    }
+    const { width, height, unit } = size as Record<string, unknown>;
+    if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
+      return '"commonSizes" entries must have a positive numeric "width"';
+    }
+    if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) {
+      return '"commonSizes" entries must have a positive numeric "height"';
+    }
+    if (typeof unit !== 'string' || !COMMON_SIZE_UNITS.includes(unit)) {
+      return `"commonSizes" entries' "unit" must be one of: ${COMMON_SIZE_UNITS.join(', ')}`;
+    }
+  }
+  return null;
+}
+
 router.get('/', async (_req, res, next) => {
   try {
     const categories = await listCategories();
     res.json(categories);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Registered before '/:id' so "hot-sizes" isn't matched as a category id.
+router.get('/hot-sizes', async (_req, res, next) => {
+  try {
+    const hotSizes = await listHotSizes();
+    res.json(hotSizes);
   } catch (err) {
     next(err);
   }
@@ -88,6 +130,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: statusFlowError });
       return;
     }
+    const commonSizesError = validateCommonSizes(req.body?.commonSizes ?? []);
+    if (commonSizesError) {
+      res.status(400).json({ error: commonSizesError });
+      return;
+    }
     const category = await createCategory(req.body ?? {});
     res.status(201).json(category);
   } catch (err) {
@@ -112,6 +159,13 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
       const statusFlowError = validateStatusFlow(req.body.statusFlow);
       if (statusFlowError) {
         res.status(400).json({ error: statusFlowError });
+        return;
+      }
+    }
+    if (req.body?.commonSizes !== undefined) {
+      const commonSizesError = validateCommonSizes(req.body.commonSizes);
+      if (commonSizesError) {
+        res.status(400).json({ error: commonSizesError });
         return;
       }
     }
