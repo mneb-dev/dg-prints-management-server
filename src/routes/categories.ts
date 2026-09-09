@@ -9,6 +9,7 @@ import {
   listHotSizes,
   updateCategory,
 } from '../data/categoryStore.js';
+import { listOrderStatuses } from '../data/orderStatusStore.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 
 // Union of StickerUnit ("in"/"cm"/"mm") and LengthUnit ("mm"/"cm"/"in"/"ft"/"m") from the
@@ -21,19 +22,10 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Non-terminal order statuses a category's workflow can be built from — same set and
-// order as CATEGORY_STATUS_FLOW_OPTIONS in the frontend's order-status.ts. `cancelled`/
-// `refunded` are excluded: those stay universal, not part of a category's configured flow.
-const CATEGORY_STATUS_OPTIONS = [
-  'pending',
-  'layout',
-  'trace',
-  'print',
-  'cut',
-  'pack',
-  'pickup',
-  'released',
-];
+// Order statuses considered "terminal" are excluded from a category's configured flow —
+// those stay universal (appended by the frontend's getOrderStatusOptions regardless of
+// category), same 3 names as ORDER_TERMINAL_STATUSES in the frontend's order-status.ts.
+const TERMINAL_STATUS_NAMES = ['cancelled', 'refunded', 'returned'];
 
 function validateName(name: unknown): string | null {
   if (typeof name !== 'string' || !name.trim()) {
@@ -45,12 +37,18 @@ function validateName(name: unknown): string | null {
   return null;
 }
 
-function validateStatusFlow(statusFlow: unknown): string | null {
+/** Non-terminal, enabled order-status names a category's workflow can be built from —
+ * fetched live from the admin-managed order_statuses table rather than a fixed array,
+ * since statuses can now be added/renamed/disabled at any time. */
+async function validateStatusFlow(statusFlow: unknown): Promise<string | null> {
   if (!Array.isArray(statusFlow) || statusFlow.length === 0) {
     return '"statusFlow" must be a non-empty array';
   }
-  if (!statusFlow.every((status) => typeof status === 'string' && CATEGORY_STATUS_OPTIONS.includes(status))) {
-    return `"statusFlow" may only contain: ${CATEGORY_STATUS_OPTIONS.join(', ')}`;
+  const allowedNames = (await listOrderStatuses())
+    .filter((status) => status.enabled && !TERMINAL_STATUS_NAMES.includes(status.name))
+    .map((status) => status.name);
+  if (!statusFlow.every((status) => typeof status === 'string' && allowedNames.includes(status))) {
+    return `"statusFlow" may only contain: ${allowedNames.join(', ')}`;
   }
   if (new Set(statusFlow).size !== statusFlow.length) {
     return '"statusFlow" cannot contain duplicate statuses';
@@ -125,7 +123,7 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: nameError });
       return;
     }
-    const statusFlowError = validateStatusFlow(req.body?.statusFlow ?? ['pending', 'released']);
+    const statusFlowError = await validateStatusFlow(req.body?.statusFlow ?? ['pending', 'released']);
     if (statusFlowError) {
       res.status(400).json({ error: statusFlowError });
       return;
@@ -156,7 +154,7 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
       }
     }
     if (req.body?.statusFlow !== undefined) {
-      const statusFlowError = validateStatusFlow(req.body.statusFlow);
+      const statusFlowError = await validateStatusFlow(req.body.statusFlow);
       if (statusFlowError) {
         res.status(400).json({ error: statusFlowError });
         return;

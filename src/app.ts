@@ -11,6 +11,7 @@ import expensesRouter from './routes/expenses.js';
 import healthRouter from './routes/health.js';
 import internalRouter from './routes/internal.js';
 import orderChannelsRouter from './routes/order-channels.js';
+import orderStatusesRouter from './routes/order-statuses.js';
 import ordersRouter from './routes/orders.js';
 import paymentMethodsRouter from './routes/payment-methods.js';
 import productsRouter from './routes/products.js';
@@ -40,6 +41,7 @@ export function createApp() {
   app.use('/api/settings', settingsRouter);
   app.use('/api/payment-methods', paymentMethodsRouter);
   app.use('/api/order-channels', orderChannelsRouter);
+  app.use('/api/order-statuses', orderStatusesRouter);
   app.use('/api/internal', internalRouter);
 
   app.use(notFound);

@@ -209,6 +209,7 @@ router.get('/', async (req, res, next) => {
       category: queryString(req.query.category),
       status: queryString(req.query.status),
       paymentStatus: queryString(req.query.paymentStatus),
+      createdBy: queryString(req.query.createdBy),
       dateFrom: dateFromRaw ? new Date(dateFromRaw).toISOString() : undefined,
       dateTo: dateToRaw ? new Date(`${dateToRaw}T23:59:59.999`).toISOString() : undefined,
       sortBy: parseSortBy(req.query.sortBy, ORDER_SORT_KEYS, 'created_at'),
