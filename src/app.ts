@@ -7,6 +7,7 @@ import { CORS_ORIGIN } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import categoriesRouter from './routes/categories.js';
+import commissionsRouter from './routes/commissions.js';
 import expensesRouter from './routes/expenses.js';
 import financeRouter from './routes/finance.js';
 import healthRouter from './routes/health.js';
@@ -40,6 +41,7 @@ export function createApp() {
   app.use('/api/users', usersRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/finance', financeRouter);
+  app.use('/api/commissions', commissionsRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/payment-methods', paymentMethodsRouter);
   app.use('/api/order-channels', orderChannelsRouter);

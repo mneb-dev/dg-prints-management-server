@@ -7,6 +7,7 @@ export const PERMISSION_KEYS = [
   'manage_users',
   'manage_expenses',
   'manage_settings',
+  'manage_commissions',
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
@@ -22,6 +23,8 @@ export interface User {
   permissions: PermissionKey[];
   avatar: string | null;
   status: UserStatus;
+  commissionRate: number;
+  dailyRate: number | null;
   createdAt: string;
   updatedAt: string;
 }

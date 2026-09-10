@@ -38,6 +38,13 @@ const USER_SORT_KEYS = ['name', 'username', 'role', 'created_at'] as const;
 
 const SUPERADMIN_CONFLICT_ERROR = 'Only one super admin is allowed. Demote the current super admin first.';
 
+function validateCommissionRate(commissionRate: unknown): string | null {
+  if (typeof commissionRate !== 'number' || !Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) {
+    return '"commissionRate" must be a number between 0 and 100';
+  }
+  return null;
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const all = req.query.all === 'true';
@@ -95,6 +102,14 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
+    if (input.commissionRate !== undefined) {
+      const commissionRateError = validateCommissionRate(input.commissionRate);
+      if (commissionRateError) {
+        res.status(400).json({ error: commissionRateError });
+        return;
+      }
+    }
+
     if (input.role === 'superadmin' && (await findSuperadminId())) {
       res.status(409).json({ error: SUPERADMIN_CONFLICT_ERROR });
       return;
@@ -133,6 +148,14 @@ router.put('/:id', async (req, res, next) => {
     if (req.user!.sub === req.params.id && input.status === 'inactive') {
       res.status(403).json({ error: 'You cannot deactivate your own account.' });
       return;
+    }
+
+    if (input.commissionRate !== undefined) {
+      const commissionRateError = validateCommissionRate(input.commissionRate);
+      if (commissionRateError) {
+        res.status(400).json({ error: commissionRateError });
+        return;
+      }
     }
 
     if (input.role === 'superadmin' && (await findSuperadminId(req.params.id))) {

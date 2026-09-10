@@ -7,7 +7,8 @@ import type { PermissionKey, Role, User, UserInput, UserOption, UserStatus } fro
 import { generateStrongPassword } from '../utils/password.js';
 
 const PUBLIC_USER_SELECT =
-  'id, first_name, last_name, username, role, permissions, avatar, status, created_at, updated_at';
+  'id, first_name, last_name, username, role, permissions, avatar, status, commission_rate, ' +
+  'daily_rate, created_at, updated_at';
 
 interface UserRow {
   id: string;
@@ -18,6 +19,8 @@ interface UserRow {
   permissions: PermissionKey[];
   avatar: string | null;
   status: UserStatus;
+  commission_rate: number | string;
+  daily_rate: number | string | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,6 +39,8 @@ function mapRowToUser(row: UserRow): User {
     permissions: row.permissions ?? [],
     avatar: row.avatar,
     status: row.status,
+    commissionRate: Number(row.commission_rate ?? 100),
+    dailyRate: row.daily_rate === null ? null : Number(row.daily_rate),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -165,6 +170,8 @@ export async function createUser(input: UserInput): Promise<User> {
       permissions: input.permissions ?? [],
       avatar: input.avatar ?? null,
       status: input.status ?? 'active',
+      commission_rate: input.commissionRate ?? 100,
+      daily_rate: input.dailyRate ?? null,
     })
     .select(PUBLIC_USER_SELECT)
     .single();
@@ -181,6 +188,8 @@ export async function updateUser(id: string, input: UserInput): Promise<User | u
   if (input.permissions !== undefined) update.permissions = input.permissions;
   if (input.avatar !== undefined) update.avatar = input.avatar;
   if (input.status !== undefined) update.status = input.status;
+  if (input.commissionRate !== undefined) update.commission_rate = input.commissionRate;
+  if (input.dailyRate !== undefined) update.daily_rate = input.dailyRate;
   if (input.password) update.password_hash = await bcrypt.hash(input.password, 10);
 
   const { data, error } = await supabase
