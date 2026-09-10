@@ -8,6 +8,7 @@ import { errorHandler, notFound } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import categoriesRouter from './routes/categories.js';
 import expensesRouter from './routes/expenses.js';
+import financeRouter from './routes/finance.js';
 import healthRouter from './routes/health.js';
 import internalRouter from './routes/internal.js';
 import orderChannelsRouter from './routes/order-channels.js';
@@ -38,6 +39,7 @@ export function createApp() {
   app.use('/api/orders', ordersRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/expenses', expensesRouter);
+  app.use('/api/finance', financeRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/payment-methods', paymentMethodsRouter);
   app.use('/api/order-channels', orderChannelsRouter);
