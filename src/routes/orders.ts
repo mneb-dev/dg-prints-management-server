@@ -7,6 +7,7 @@ import {
   getOrderStats,
   listOrders,
   listTopCustomers,
+  saveOrRequest,
   updateOrder,
 } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
@@ -122,6 +123,41 @@ function validateShippingAddress(shippingAddress: unknown): string | null {
   return null;
 }
 
+function validateOrRequest(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) {
+    return '"name" and "address" are required';
+  }
+  const { name, address, tin, invoiceNumber } = body as {
+    name?: unknown;
+    address?: unknown;
+    tin?: unknown;
+    invoiceNumber?: unknown;
+  };
+  if (typeof name !== 'string' || !name.trim()) {
+    return '"name" is required';
+  }
+  if (name.length > 120) {
+    return '"name" must be at most 120 characters';
+  }
+  if (typeof address !== 'string' || !address.trim()) {
+    return '"address" is required';
+  }
+  if (address.length > 250) {
+    return '"address" must be at most 250 characters';
+  }
+  if (tin !== undefined && tin !== null && (typeof tin !== 'string' || tin.length > 20)) {
+    return '"tin" must be a string of at most 20 characters';
+  }
+  if (
+    invoiceNumber !== undefined &&
+    invoiceNumber !== null &&
+    (typeof invoiceNumber !== 'string' || invoiceNumber.length > 50)
+  ) {
+    return '"invoiceNumber" must be a string of at most 50 characters';
+  }
+  return null;
+}
+
 function validateItemNotes(items: unknown): string | null {
   if (!Array.isArray(items)) return null;
   for (const item of items) {
@@ -202,6 +238,9 @@ router.get('/', async (req, res, next) => {
       return;
     }
 
+    const hasOrRaw = queryString(req.query.hasOr);
+    const hasOr = hasOrRaw === 'true' ? true : hasOrRaw === 'false' ? false : undefined;
+
     const result = await listOrders({
       page,
       pageSize,
@@ -214,6 +253,8 @@ router.get('/', async (req, res, next) => {
       dateTo: dateToRaw ? new Date(`${dateToRaw}T23:59:59.999`).toISOString() : undefined,
       sortBy: parseSortBy(req.query.sortBy, ORDER_SORT_KEYS, 'created_at'),
       sortDir: parseSortDir(req.query.sortDir),
+      channel: queryString(req.query.channel),
+      hasOr,
     });
     res.json(result);
   } catch (err) {
@@ -354,6 +395,24 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
       return;
     }
     const updated = await updateOrder(req.params.id, req.body ?? {}, req.user!.sub);
+    if (!updated) {
+      res.status(404).json({ error: `Order not found: ${req.params.id}` });
+      return;
+    }
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/or-request', requirePermission('manage_orders'), async (req, res, next) => {
+  try {
+    const error = validateOrRequest(req.body);
+    if (error) {
+      res.status(400).json({ error });
+      return;
+    }
+    const updated = await saveOrRequest(req.params.id, req.body);
     if (!updated) {
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;

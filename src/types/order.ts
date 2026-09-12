@@ -49,6 +49,23 @@ export interface ShippingAddress {
   fee: number;
 }
 
+export interface OrRequest {
+  id: string;
+  name: string;
+  address: string;
+  tin: string | null;
+  invoiceNumber: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type OrRequestInput = {
+  name: string;
+  address: string;
+  tin?: string;
+  invoiceNumber?: string;
+};
+
 export interface Payment {
   status: string;
   method: string | null;
@@ -81,6 +98,7 @@ export interface Order {
   statusUpdatedAt: string | null;
   shippingAddress: ShippingAddress | null;
   payment: Payment;
+  orRequest: OrRequest | null;
 }
 
 export type OrderItemInput = Partial<Omit<OrderItem, 'pricing'>> & {
@@ -101,6 +119,7 @@ export type OrderInput = Partial<
     | 'statusUpdatedBy'
     | 'statusUpdatedByName'
     | 'statusUpdatedAt'
+    | 'orRequest'
   >
 > & {
   items?: OrderItemInput[];

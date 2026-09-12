@@ -11,6 +11,8 @@ import type {
   OrderItemPricing,
   OrderStats,
   OrderUpdateInput,
+  OrRequest,
+  OrRequestInput,
   Payment,
   ShippingAddress,
   StickerQuotation,
@@ -61,7 +63,18 @@ interface OrderRow {
   payment_method: string | null;
   payment_down_payment: number | string;
   payment_balance: number | string;
+  or_request: OrRequestRow | OrRequestRow[] | null;
   items: OrderItemRow[];
+}
+
+interface OrRequestRow {
+  id: string;
+  name: string;
+  address: string;
+  tin: string | null;
+  invoice_number: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 const ORDER_SELECT = `
@@ -70,9 +83,24 @@ const ORDER_SELECT = `
   created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance,
+  or_request:order_or_requests ( id, name, address, tin, invoice_number, created_at, updated_at ),
   items:order_items ( id, product_id, product_name, product_category,
     selected_options, quantity, notes, pricing, line_total, sticker_quotation, sort_order )
 `;
+
+function mapOrRequestRow(value: OrRequestRow | OrRequestRow[] | null | undefined): OrRequest | null {
+  const row = Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    tin: row.tin,
+    invoiceNumber: row.invoice_number,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 function foldStickerQuotation(
   item: OrderItemInput | OrderItem
@@ -144,6 +172,7 @@ function mapRowToOrder(row: OrderRow): Order {
       downPayment: Number(row.payment_down_payment),
       balance: Number(row.payment_balance),
     },
+    orRequest: mapOrRequestRow(row.or_request),
   };
 }
 
@@ -229,6 +258,8 @@ export interface ListOrdersParams {
   dateTo?: string;
   sortBy: string;
   sortDir: 'asc' | 'desc';
+  channel?: string;
+  hasOr?: boolean;
 }
 
 export interface ListOrdersResult {
@@ -239,8 +270,21 @@ export interface ListOrdersResult {
 }
 
 export async function listOrders(params: ListOrdersParams): Promise<ListOrdersResult> {
-  const { page, pageSize, search, category, status, paymentStatus, createdBy, dateFrom, dateTo, sortBy, sortDir } =
-    params;
+  const {
+    page,
+    pageSize,
+    search,
+    category,
+    status,
+    paymentStatus,
+    createdBy,
+    dateFrom,
+    dateTo,
+    sortBy,
+    sortDir,
+    channel,
+    hasOr,
+  } = params;
   const statusList = status
     ? status.split(',').map((s) => s.trim()).filter(Boolean)
     : null;
@@ -256,6 +300,8 @@ export async function listOrders(params: ListOrdersParams): Promise<ListOrdersRe
     p_offset: (page - 1) * pageSize,
     p_sort_by: sortBy,
     p_sort_dir: sortDir,
+    p_has_or: hasOr === undefined ? null : hasOr,
+    p_channel: channel || null,
   });
   if (error) throw new Error(error.message);
   const payload = data as unknown as { rows: OrderRow[]; total: number };
@@ -365,6 +411,7 @@ export async function createOrder(input: OrderInput, actorId: string): Promise<O
     statusUpdatedAt: now,
     shippingAddress: input.shippingAddress ?? null,
     payment,
+    orRequest: null,
   };
 
   const { error } = await supabase.rpc('upsert_order', { payload: toRpcPayload(order) });
@@ -423,6 +470,25 @@ export async function updateOrder(
   const result = await getOrder(id);
   if (!result) throw new Error('Failed to load updated order');
   return result;
+}
+
+export async function saveOrRequest(orderId: string, input: OrRequestInput): Promise<Order | undefined> {
+  const existing = await getOrder(orderId);
+  if (!existing) return undefined;
+
+  const { error } = await supabase.from('order_or_requests').upsert(
+    {
+      order_id: orderId,
+      name: input.name,
+      address: input.address,
+      tin: input.tin ?? null,
+      invoice_number: input.invoiceNumber ?? null,
+    },
+    { onConflict: 'order_id' }
+  );
+  if (error) throw new Error(error.message);
+
+  return getOrder(orderId);
 }
 
 export async function deleteOrder(id: string): Promise<boolean> {
