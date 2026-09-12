@@ -119,6 +119,196 @@ export async function listCommissionOrders(
   }));
 }
 
+export interface MonthlyIncentiveTier {
+  threshold: number;
+  amount: number;
+  progressPercent: number;
+  isMet: boolean;
+}
+
+export interface MonthlyIncentiveStaffShare {
+  userId: string;
+  name: string;
+  ownSales: number;
+  percentageShare: number;
+  commissionShare: number;
+}
+
+export interface MonthlyIncentiveOwnShare {
+  ownSales: number;
+  percentageShare: number;
+  commissionShare: number;
+}
+
+export interface MonthlyIncentiveSummary {
+  totalStaffSales: number;
+  pool: number;
+  tiers: MonthlyIncentiveTier[];
+  perStaff: MonthlyIncentiveStaffShare[];
+  // The calling user's own row, resolved server-side regardless of role -- lets a staff caller
+  // see their own contribution/share even though perStaff (everyone's) is stripped for them.
+  // Null when the caller has no eligible sales in the period (e.g. an admin, or a staff member
+  // with no paid orders yet).
+  ownShare: MonthlyIncentiveOwnShare | null;
+  releasedAt: string | null;
+  releasedBy: string | null;
+  releasedByName: string | null;
+}
+
+interface MonthlyIncentiveSummaryRawRow {
+  totalStaffSales: number | string;
+  pool: number | string;
+  tiers: { threshold: number | string; amount: number | string; progressPercent: number | string; isMet: boolean }[];
+  perStaff: {
+    userId: string;
+    name: string;
+    ownSales: number | string;
+    percentageShare: number | string;
+    commissionShare: number | string;
+  }[];
+  ownShare: { ownSales: number | string; percentageShare: number | string; commissionShare: number | string } | null;
+  releasedAt: string | null;
+  releasedBy: string | null;
+  releasedByName: string | null;
+}
+
+/**
+ * Team-wide monthly incentive tier summary (see the monthly_incentive_summary migration for the
+ * full eligibility/math contract). Unlike getCommissionSummary, this returns one object, not one
+ * row per staff member -- the tier ladder and pool are inherently team-wide.
+ */
+export async function getMonthlyIncentiveSummary(
+  dateFrom: string,
+  dateTo: string,
+  callerId: string
+): Promise<MonthlyIncentiveSummary> {
+  const { data, error } = await supabase.rpc('monthly_incentive_summary', {
+    p_date_from: dateFrom,
+    p_date_to: dateTo,
+    p_caller_id: callerId,
+  });
+  if (error) throw new Error(error.message);
+  const row = (data as unknown as MonthlyIncentiveSummaryRawRow) ?? {
+    totalStaffSales: 0,
+    pool: 0,
+    tiers: [],
+    perStaff: [],
+    ownShare: null,
+    releasedAt: null,
+    releasedBy: null,
+    releasedByName: null,
+  };
+  return {
+    totalStaffSales: Number(row.totalStaffSales ?? 0),
+    pool: Number(row.pool ?? 0),
+    tiers: (row.tiers ?? []).map((t) => ({
+      threshold: Number(t.threshold ?? 0),
+      amount: Number(t.amount ?? 0),
+      progressPercent: Number(t.progressPercent ?? 0),
+      isMet: Boolean(t.isMet),
+    })),
+    perStaff: (row.perStaff ?? []).map((s) => ({
+      userId: s.userId,
+      name: s.name,
+      ownSales: Number(s.ownSales ?? 0),
+      percentageShare: Number(s.percentageShare ?? 0),
+      commissionShare: Number(s.commissionShare ?? 0),
+    })),
+    ownShare: row.ownShare
+      ? {
+          ownSales: Number(row.ownShare.ownSales ?? 0),
+          percentageShare: Number(row.ownShare.percentageShare ?? 0),
+          commissionShare: Number(row.ownShare.commissionShare ?? 0),
+        }
+      : null,
+    releasedAt: row.releasedAt ?? null,
+    releasedBy: row.releasedBy ?? null,
+    releasedByName: row.releasedByName ?? null,
+  };
+}
+
+/**
+ * Releases the monthly incentive pool for the calendar month containing dateFrom, via the
+ * release_monthly_incentive RPC: snapshots the current total staff sales and per-staff split and
+ * creates one expense per staff member (same "one expense per staff group" convention as
+ * releaseCommissionOrders). Throws if that month was already released or if no tier has been
+ * unlocked yet -- unlike per-order release, this isn't a batch that silently skips ineligible
+ * entries, since there's only ever one release per month.
+ */
+export async function releaseMonthlyIncentive(
+  dateFrom: string,
+  dateTo: string,
+  actorId: string
+): Promise<{ releaseId: string; periodMonth: string }> {
+  const { data, error } = await supabase.rpc('release_monthly_incentive', {
+    p_date_from: dateFrom,
+    p_date_to: dateTo,
+    p_actor_id: actorId,
+  });
+  if (error) throw new Error(error.message);
+  const row = data as unknown as { releaseId: string; periodMonth: string };
+  return { releaseId: row.releaseId, periodMonth: row.periodMonth };
+}
+
+/**
+ * Reverses releaseMonthlyIncentive for the calendar month containing dateFrom: deletes the
+ * expenses it created and the release/share rows, via the unrelease_monthly_incentive RPC.
+ */
+export async function unreleaseMonthlyIncentive(
+  dateFrom: string,
+  dateTo: string
+): Promise<{ unreleased: boolean; periodMonth: string | null }> {
+  const { data, error } = await supabase.rpc('unrelease_monthly_incentive', {
+    p_date_from: dateFrom,
+    p_date_to: dateTo,
+  });
+  if (error) throw new Error(error.message);
+  const row = data as unknown as { unreleased: boolean; periodMonth: string | null };
+  return { unreleased: row.unreleased, periodMonth: row.periodMonth ?? null };
+}
+
+export interface MonthlyIncentiveHistoryEntry {
+  periodMonth: string;
+  totalStaffSales: number;
+  pool: number;
+  releasedAt: string | null;
+  releasedBy: string | null;
+  releasedByName: string | null;
+  isCurrentMonth: boolean;
+}
+
+interface MonthlyIncentiveHistoryRawEntry {
+  periodMonth: string;
+  totalStaffSales: number | string;
+  pool: number | string;
+  releasedAt: string | null;
+  releasedBy: string | null;
+  releasedByName: string | null;
+  isCurrentMonth: boolean;
+}
+
+/**
+ * One row per calendar month of `year` (Jan through the current month if `year` is this year,
+ * otherwise all 12), via the monthly_incentive_history RPC -- for the admin/superadmin release
+ * history table. Each entry's isCurrentMonth flags the one month release_monthly_incentive will
+ * always refuse, so the route/frontend can grey out its action instead of surprising the admin
+ * with an error on click.
+ */
+export async function getMonthlyIncentiveHistory(year: number): Promise<MonthlyIncentiveHistoryEntry[]> {
+  const { data, error } = await supabase.rpc('monthly_incentive_history', { p_year: year });
+  if (error) throw new Error(error.message);
+  const rows = (data as unknown as MonthlyIncentiveHistoryRawEntry[]) ?? [];
+  return rows.map((row) => ({
+    periodMonth: row.periodMonth,
+    totalStaffSales: Number(row.totalStaffSales ?? 0),
+    pool: Number(row.pool ?? 0),
+    releasedAt: row.releasedAt ?? null,
+    releasedBy: row.releasedBy ?? null,
+    releasedByName: row.releasedByName ?? null,
+    isCurrentMonth: Boolean(row.isCurrentMonth),
+  }));
+}
+
 /**
  * Releases a batch of paid, not-yet-released orders' commission via the release_commission_orders
  * RPC (not a direct update -- computing each order's locked-in amount needs a cross-table read of

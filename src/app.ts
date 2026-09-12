@@ -11,6 +11,7 @@ import commissionsRouter from './routes/commissions.js';
 import expensesRouter from './routes/expenses.js';
 import financeRouter from './routes/finance.js';
 import healthRouter from './routes/health.js';
+import incentiveTiersRouter from './routes/incentiveTiers.js';
 import internalRouter from './routes/internal.js';
 import orderChannelsRouter from './routes/order-channels.js';
 import orderStatusesRouter from './routes/order-statuses.js';
@@ -42,6 +43,7 @@ export function createApp() {
   app.use('/api/expenses', expensesRouter);
   app.use('/api/finance', financeRouter);
   app.use('/api/commissions', commissionsRouter);
+  app.use('/api/incentive-tiers', incentiveTiersRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/payment-methods', paymentMethodsRouter);
   app.use('/api/order-channels', orderChannelsRouter);
