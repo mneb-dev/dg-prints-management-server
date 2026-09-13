@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { supabase } from '../config/supabaseClient.js';
 import type { Expense, ExpenseInput } from '../types/expense.js';
-import { getUser } from './userStore.js';
+
+interface ActorRow {
+  first_name: string;
+  last_name: string;
+}
 
 interface ExpenseRow {
   id: string;
@@ -12,9 +16,7 @@ interface ExpenseRow {
   payment_method: string;
   notes: string;
   created_by: string | null;
-  // Present (joined) on list_expenses' RPC rows; absent on getExpense's
-  // plain-column select — getExpense resolves the name itself after fetching.
-  created_by_name?: string;
+  created_by_user: ActorRow | ActorRow[] | null;
   recurring_expense_id: string | null;
   commission_order_ids: string[] | null;
   monthly_incentive_release_id: string | null;
@@ -22,9 +24,17 @@ interface ExpenseRow {
   updated_at: string;
 }
 
+// Embeds created_by's display name via its FK to users in the same query, instead of a separate
+// getUser() round-trip after the fact (same fix as orderStore.ts's getOrder — see its comment).
 const EXPENSE_SELECT =
   'id, date, amount, category, payment_method, notes, created_by, recurring_expense_id, ' +
-  'commission_order_ids, monthly_incentive_release_id, created_at, updated_at';
+  'commission_order_ids, monthly_incentive_release_id, created_at, updated_at, ' +
+  'created_by_user:users!expenses_created_by_fkey ( first_name, last_name )';
+
+function actorName(value: ActorRow | ActorRow[] | null | undefined): string {
+  const row = Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+  return row ? `${row.first_name} ${row.last_name}`.trim() : '';
+}
 
 function mapRowToExpense(row: ExpenseRow): Expense {
   return {
@@ -35,7 +45,7 @@ function mapRowToExpense(row: ExpenseRow): Expense {
     paymentMethod: row.payment_method,
     notes: row.notes,
     createdBy: row.created_by,
-    createdByName: row.created_by_name ?? '',
+    createdByName: actorName(row.created_by_user),
     recurringExpenseId: row.recurring_expense_id,
     commissionOrderIds: row.commission_order_ids,
     monthlyIncentiveReleaseId: row.monthly_incentive_release_id,
@@ -47,11 +57,6 @@ function mapRowToExpense(row: ExpenseRow): Expense {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-async function resolveActorName(actorId: string): Promise<string> {
-  const user = await getUser(actorId);
-  return user ? `${user.firstName} ${user.lastName}`.trim() : '';
 }
 
 export interface ListExpensesParams {
@@ -107,9 +112,7 @@ export async function getExpense(id: string): Promise<Expense | undefined> {
   if (error) throw new Error(error.message);
   if (!data) return undefined;
 
-  const expense = mapRowToExpense(data as unknown as ExpenseRow);
-  const createdByName = expense.createdBy ? await resolveActorName(expense.createdBy) : '';
-  return { ...expense, createdByName };
+  return mapRowToExpense(data as unknown as ExpenseRow);
 }
 
 export async function createExpense(input: ExpenseInput, actorId: string): Promise<Expense> {
@@ -128,8 +131,7 @@ export async function createExpense(input: ExpenseInput, actorId: string): Promi
     .single();
   if (error) throw new Error(error.message);
 
-  const created = mapRowToExpense(data as unknown as ExpenseRow);
-  return { ...created, createdByName: await resolveActorName(actorId) };
+  return mapRowToExpense(data as unknown as ExpenseRow);
 }
 
 export async function updateExpense(id: string, input: ExpenseInput): Promise<Expense | undefined> {
@@ -149,9 +151,7 @@ export async function updateExpense(id: string, input: ExpenseInput): Promise<Ex
   if (error) throw new Error(error.message);
   if (!data) return undefined;
 
-  const expense = mapRowToExpense(data as unknown as ExpenseRow);
-  const createdByName = expense.createdBy ? await resolveActorName(expense.createdBy) : '';
-  return { ...expense, createdByName };
+  return mapRowToExpense(data as unknown as ExpenseRow);
 }
 
 export async function deleteExpense(id: string): Promise<boolean> {
