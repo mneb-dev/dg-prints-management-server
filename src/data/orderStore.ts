@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { supabase } from '../config/supabaseClient.js';
-import { getUser } from './userStore.js';
 import type {
   CustomerRanking,
   Order,
@@ -46,17 +45,13 @@ interface OrderRow {
   additional_fees: number | string;
   layout_fee: number | string;
   layout_by: string | null;
-  // Present (joined/computed) on list_orders' RPC rows; absent on getOrder's
-  // plain-column select — getOrder resolves the name itself after fetching.
-  layout_by_name?: string;
+  layout_by_user: ActorRow | ActorRow[] | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
-  // Present (joined/computed) on list_orders' RPC rows; absent on getOrder's
-  // plain-column select — getOrder resolves the name itself after fetching.
-  created_by_name?: string;
+  created_by_user: ActorRow | ActorRow[] | null;
   status_updated_by: string | null;
-  status_updated_by_name?: string;
+  status_updated_by_user: ActorRow | ActorRow[] | null;
   status_updated_at: string | null;
   shipping_address: Record<string, unknown> | null;
   payment_status: string;
@@ -77,6 +72,16 @@ interface OrRequestRow {
   updated_at: string;
 }
 
+interface ActorRow {
+  first_name: string;
+  last_name: string;
+}
+
+// Embeds created_by/status_updated_by/layout_by's display name via their FK to users in the
+// same query (PostgREST needs the explicit !<fkey> hint since orders has 3 separate FKs to
+// users), instead of getOrder issuing up to 3 additional round-trips after the fact — each of
+// those was its own request to Supabase, multiplying this endpoint's exposure to any latency on
+// Supabase's side threefold.
 const ORDER_SELECT = `
   id, order_number, customer_name, customer_phone, status,
   subtotal, discount, total, notes, channel, additional_fees, layout_fee, layout_by,
@@ -85,8 +90,16 @@ const ORDER_SELECT = `
   payment_status, payment_method, payment_down_payment, payment_balance,
   or_request:order_or_requests ( id, name, address, tin, invoice_number, created_at, updated_at ),
   items:order_items ( id, product_id, product_name, product_category,
-    selected_options, quantity, notes, pricing, line_total, sticker_quotation, sort_order )
+    selected_options, quantity, notes, pricing, line_total, sticker_quotation, sort_order ),
+  created_by_user:users!orders_created_by_fkey ( first_name, last_name ),
+  status_updated_by_user:users!orders_status_updated_by_fkey ( first_name, last_name ),
+  layout_by_user:users!orders_layout_by_fkey ( first_name, last_name )
 `;
+
+function actorName(value: ActorRow | ActorRow[] | null | undefined): string {
+  const row = Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+  return row ? `${row.first_name} ${row.last_name}`.trim() : '';
+}
 
 function mapOrRequestRow(value: OrRequestRow | OrRequestRow[] | null | undefined): OrRequest | null {
   const row = Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
@@ -157,13 +170,13 @@ function mapRowToOrder(row: OrderRow): Order {
     additionalFees: Number(row.additional_fees),
     layoutFee: Number(row.layout_fee),
     layoutBy: row.layout_by,
-    layoutByName: row.layout_by_name ?? '',
+    layoutByName: actorName(row.layout_by_user),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
-    createdByName: row.created_by_name ?? '',
+    createdByName: actorName(row.created_by_user),
     statusUpdatedBy: row.status_updated_by,
-    statusUpdatedByName: row.status_updated_by_name ?? '',
+    statusUpdatedByName: actorName(row.status_updated_by_user),
     statusUpdatedAt: row.status_updated_at,
     shippingAddress: row.shipping_address as ShippingAddress | null,
     payment: {
@@ -363,18 +376,7 @@ export async function getOrder(id: string): Promise<Order | undefined> {
   if (error) throw new Error(error.message);
   if (!data) return undefined;
 
-  const order = mapRowToOrder(data as unknown as OrderRow);
-  const [createdByName, statusUpdatedByName, layoutByName] = await Promise.all([
-    order.createdBy ? resolveActorName(order.createdBy) : Promise.resolve(''),
-    order.statusUpdatedBy ? resolveActorName(order.statusUpdatedBy) : Promise.resolve(''),
-    order.layoutBy ? resolveActorName(order.layoutBy) : Promise.resolve(''),
-  ]);
-  return { ...order, createdByName, statusUpdatedByName, layoutByName };
-}
-
-async function resolveActorName(actorId: string): Promise<string> {
-  const user = await getUser(actorId);
-  return user ? `${user.firstName} ${user.lastName}`.trim() : '';
+  return mapRowToOrder(data as unknown as OrderRow);
 }
 
 export async function createOrder(input: OrderInput, actorId: string): Promise<Order> {
