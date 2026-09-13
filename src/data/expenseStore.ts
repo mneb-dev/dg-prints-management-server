@@ -134,6 +134,29 @@ export async function createExpense(input: ExpenseInput, actorId: string): Promi
   return mapRowToExpense(data as unknown as ExpenseRow);
 }
 
+/** Same as createExpense, but inserts every input in a single round-trip -- used by "Run
+ * Payroll", which previously fired one createExpense() call per selected staff member. */
+export async function createExpenses(inputs: ExpenseInput[], actorId: string): Promise<Expense[]> {
+  if (inputs.length === 0) return [];
+  const { data, error } = await supabase
+    .from('expenses')
+    .insert(
+      inputs.map((input) => ({
+        id: randomUUID(),
+        date: input.date,
+        amount: input.amount,
+        category: input.category,
+        payment_method: input.paymentMethod,
+        notes: input.notes ?? '',
+        created_by: actorId,
+      }))
+    )
+    .select(EXPENSE_SELECT);
+  if (error) throw new Error(error.message);
+
+  return (data as unknown as ExpenseRow[]).map(mapRowToExpense);
+}
+
 export async function updateExpense(id: string, input: ExpenseInput): Promise<Expense | undefined> {
   const update: Record<string, unknown> = {};
   if (input.date !== undefined) update.date = input.date;

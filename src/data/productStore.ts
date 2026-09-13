@@ -226,9 +226,10 @@ export async function createProduct(input: ProductInput): Promise<Product> {
   const { error } = await supabase.rpc('upsert_product', { payload: toRpcPayload(product) });
   if (error) throw new Error(error.message);
 
-  const created = await getProduct(product.id);
-  if (!created) throw new Error('Failed to load created product');
-  return created;
+  // upsert_product writes exactly this payload, so returning it directly skips a redundant
+  // getProduct() re-fetch. Only difference: updated_at reflects this JS timestamp rather than
+  // the DB trigger's own now() (a few ms apart, no functional difference).
+  return product;
 }
 
 export async function updateProduct(
@@ -255,9 +256,9 @@ export async function updateProduct(
   const { error } = await supabase.rpc('upsert_product', { payload: toRpcPayload(updated) });
   if (error) throw new Error(error.message);
 
-  const result = await getProduct(id);
-  if (!result) throw new Error('Failed to load updated product');
-  return result;
+  // Same reasoning as createProduct: upsert_product writes exactly `updated`, so return it
+  // directly instead of re-fetching.
+  return updated;
 }
 
 export async function deleteProduct(id: string): Promise<boolean> {

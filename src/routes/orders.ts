@@ -282,6 +282,27 @@ router.get('/stats', async (req, res, next) => {
   }
 });
 
+// Registered before '/:id' so "dashboard-summary" isn't matched as an order id. Bundles the
+// three queries the Dashboard's manual refresh fires together (stats, last-100-orders ranking
+// sample, top customers) into one request instead of three.
+router.get('/dashboard-summary', async (req, res, next) => {
+  try {
+    const [stats, recent, customers] = await Promise.all([
+      getOrderStats(),
+      listOrders({ page: 1, pageSize: 100, sortBy: 'created_at', sortDir: 'desc' }),
+      listTopCustomers(CUSTOMER_RANKING_WINDOW_DAYS),
+    ]);
+    res.json({
+      stats,
+      recentOrders: recent.items,
+      customers,
+      windowDays: CUSTOMER_RANKING_WINDOW_DAYS,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const order = await getOrder(req.params.id);

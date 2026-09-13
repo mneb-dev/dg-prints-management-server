@@ -216,8 +216,10 @@ export async function deleteOrderStatus(id: string): Promise<DeleteOrderStatusRe
 
 /** Renumbers sort_order to match `ids`'s order. */
 export async function reorderOrderStatuses(ids: string[]): Promise<OrderStatus[]> {
-  await Promise.all(
-    ids.map((id, index) => supabase.from('order_statuses').update({ sort_order: index }).eq('id', id))
-  );
+  const { error } = await supabase.rpc('reorder_catalog_items', {
+    p_table: 'order_statuses',
+    p_ids: ids,
+  });
+  if (error) throw new Error(error.message);
   return listOrderStatuses();
 }

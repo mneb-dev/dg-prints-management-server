@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import {
   createExpense,
+  createExpenses,
   deleteExpense,
   getExpense,
   listExpenses,
@@ -62,6 +63,21 @@ function validateNotes(notes: unknown): string | null {
   }
   return null;
 }
+
+/** Shared by POST / and POST /batch so a single item's validation rules live in one place. */
+function validateExpenseInput(body: unknown): string | null {
+  const b = (body ?? {}) as Record<string, unknown>;
+  return (
+    validateDate(b.date) ||
+    validateAmount(b.amount) ||
+    validateCategory(b.category) ||
+    validatePaymentMethod(b.paymentMethod) ||
+    validateNotes(b.notes) ||
+    null
+  );
+}
+
+const MAX_BATCH_EXPENSES = 100;
 
 function validateFrequency(frequency: unknown): string | null {
   if (
@@ -265,6 +281,33 @@ router.post('/', async (req, res, next) => {
     }
     const expense = await createExpense(req.body, req.user!.sub);
     res.status(201).json(expense);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Inserts several expenses in one round-trip -- used by "Run Payroll", which previously fired
+// one POST / per selected staff member.
+router.post('/batch', async (req, res, next) => {
+  try {
+    const items = req.body?.expenses;
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: '"expenses" must be a non-empty array' });
+      return;
+    }
+    if (items.length > MAX_BATCH_EXPENSES) {
+      res.status(400).json({ error: `"expenses" cannot exceed ${MAX_BATCH_EXPENSES} items` });
+      return;
+    }
+    for (const item of items) {
+      const itemError = validateExpenseInput(item);
+      if (itemError) {
+        res.status(400).json({ error: itemError });
+        return;
+      }
+    }
+    const expenses = await createExpenses(items, req.user!.sub);
+    res.status(201).json({ expenses });
   } catch (err) {
     next(err);
   }

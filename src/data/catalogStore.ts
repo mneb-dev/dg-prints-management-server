@@ -117,9 +117,8 @@ export function createCatalogStore(table: 'payment_methods' | 'order_channels') 
    * order row (channel/payment_method are historical text snapshots, not foreign keys),
    * so there's nothing to reconcile there — same reasoning applies to a rename. */
   async function reorder(ids: string[]): Promise<CatalogItem[]> {
-    await Promise.all(
-      ids.map((id, index) => supabase.from(table).update({ sort_order: index }).eq('id', id))
-    );
+    const { error } = await supabase.rpc('reorder_catalog_items', { p_table: table, p_ids: ids });
+    if (error) throw new Error(error.message);
     return list();
   }
 
