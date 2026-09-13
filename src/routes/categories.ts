@@ -6,7 +6,6 @@ import {
   DuplicateCategoryNameError,
   getCategory,
   listCategories,
-  listHotSizes,
   updateCategory,
 } from '../data/categoryStore.js';
 import { listOrderStatuses } from '../data/orderStatusStore.js';
@@ -88,16 +87,6 @@ router.get('/', async (_req, res, next) => {
   try {
     const categories = await listCategories();
     res.json(categories);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Registered before '/:id' so "hot-sizes" isn't matched as a category id.
-router.get('/hot-sizes', async (_req, res, next) => {
-  try {
-    const hotSizes = await listHotSizes();
-    res.json(hotSizes);
   } catch (err) {
     next(err);
   }

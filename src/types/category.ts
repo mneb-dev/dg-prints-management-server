@@ -15,8 +15,3 @@ export interface Category {
 }
 
 export type CategoryInput = Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt'>>;
-
-export interface HotSizes {
-  stickerLabel: CommonSize[];
-  tarpaulin: CommonSize[];
-}

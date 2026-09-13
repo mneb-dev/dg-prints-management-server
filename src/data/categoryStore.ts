@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { supabase } from '../config/supabaseClient.js';
-import type { Category, CategoryInput, CommonSize, HotSizes } from '../types/category.js';
+import type { Category, CategoryInput, CommonSize } from '../types/category.js';
 
 const CATEGORY_SELECT = 'id, name, active, status_flow, common_sizes, created_at, updated_at';
 
@@ -27,17 +27,6 @@ function mapRowToCategory(row: CategoryRow): Category {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-// Same drift problem the frontend's isStickerLabelCategory (order-line-item.ts) already
-// handles: order_items.product_category is a historical per-item snapshot string, so
-// aggregating "last N orders of Sticker Label" over real order history must match every
-// name a category has ever been known by, not just its current live name.
-const STICKER_LABEL_ALIASES = ['sticker', 'sticker label'];
-const TARPAULIN_ALIASES = ['tarpaulin'];
-
-function canonicalSizeKey(size: CommonSize): string {
-  return `${size.unit}:${Math.min(size.width, size.height)}x${Math.max(size.width, size.height)}`;
 }
 
 /** Thrown by createCategory/updateCategory when the name collides (case-insensitively) with another category. */
@@ -159,45 +148,4 @@ export async function deleteCategory(id: string): Promise<DeleteCategoryResult> 
   const { error } = await supabase.from('categories').delete().eq('id', id);
   if (error) throw new Error(error.message);
   return { deleted: true };
-}
-
-interface HotSizeRow extends CommonSize {
-  count: number;
-}
-
-async function rankedHotSizes(aliases: string[]): Promise<HotSizeRow[]> {
-  const { data, error } = await supabase.rpc('hot_sizes', {
-    p_category_names: aliases,
-    p_limit: 100,
-  });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as HotSizeRow[];
-}
-
-/** Top 5 hot sizes per category, skipping any candidate that duplicates one of that
- * category's admin-configured common sizes (orientation-insensitive, exact-unit match —
- * same rule the `hot_sizes` SQL function uses for its own grouping) so a chip never shows
- * the same size twice. Laminated Sticker has no bucket of its own here — the frontend
- * mirrors the Sticker Label bucket for it. */
-export async function listHotSizes(): Promise<HotSizes> {
-  const categories = await listCategories();
-  const stickerLabelCategory = categories.find((c) => STICKER_LABEL_ALIASES.includes(c.name.trim().toLowerCase()));
-  const tarpaulinCategory = categories.find((c) => TARPAULIN_ALIASES.includes(c.name.trim().toLowerCase()));
-
-  async function topFiveExcluding(category: Category | undefined, aliases: string[]): Promise<CommonSize[]> {
-    if (!category) return [];
-    const excluded = new Set(category.commonSizes.map(canonicalSizeKey));
-    const ranked = await rankedHotSizes(aliases);
-    return ranked
-      .filter((candidate) => !excluded.has(canonicalSizeKey(candidate)))
-      .slice(0, 5)
-      .map(({ width, height, unit }) => ({ width, height, unit }));
-  }
-
-  const [stickerLabel, tarpaulin] = await Promise.all([
-    topFiveExcluding(stickerLabelCategory, STICKER_LABEL_ALIASES),
-    topFiveExcluding(tarpaulinCategory, TARPAULIN_ALIASES),
-  ]);
-
-  return { stickerLabel, tarpaulin };
 }
