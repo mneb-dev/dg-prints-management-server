@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { supabase } from '../config/supabaseClient.js';
 import type { RecurringExpense, RecurringExpenseInput } from '../types/expense.js';
-import { getUser } from './userStore.js';
+
+interface ActorRow {
+  first_name: string;
+  last_name: string;
+}
 
 interface RecurringExpenseRow {
   id: string;
@@ -15,12 +19,22 @@ interface RecurringExpenseRow {
   next_run_date: string;
   active: boolean;
   created_by: string | null;
+  created_by_user: ActorRow | ActorRow[] | null;
   created_at: string;
   updated_at: string;
 }
 
+// Embeds created_by's display name via its FK to users in the same query, instead of a separate
+// getUser() round-trip per row (listRecurringExpenses() used to fire one per schedule via
+// Promise.all -- same fix as orderStore.ts's getOrder/expenseStore.ts's getExpense).
 const RECURRING_EXPENSE_SELECT =
-  'id, amount, category, payment_method, notes, frequency, start_date, next_run_date, active, created_by, created_at, updated_at';
+  'id, amount, category, payment_method, notes, frequency, start_date, next_run_date, active, created_by, created_at, updated_at, ' +
+  'created_by_user:users!recurring_expenses_created_by_fkey ( first_name, last_name )';
+
+function actorName(value: ActorRow | ActorRow[] | null | undefined): string {
+  const row = Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+  return row ? `${row.first_name} ${row.last_name}`.trim() : '';
+}
 
 function mapRowToRecurringExpense(row: RecurringExpenseRow): RecurringExpense {
   return {
@@ -34,20 +48,10 @@ function mapRowToRecurringExpense(row: RecurringExpenseRow): RecurringExpense {
     nextRunDate: row.next_run_date,
     active: row.active,
     createdBy: row.created_by,
-    createdByName: '',
+    createdByName: actorName(row.created_by_user),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-async function resolveActorName(actorId: string): Promise<string> {
-  const user = await getUser(actorId);
-  return user ? `${user.firstName} ${user.lastName}`.trim() : '';
-}
-
-async function withCreatedByName(expense: RecurringExpense): Promise<RecurringExpense> {
-  const createdByName = expense.createdBy ? await resolveActorName(expense.createdBy) : '';
-  return { ...expense, createdByName };
 }
 
 export async function listRecurringExpenses(): Promise<RecurringExpense[]> {
@@ -57,8 +61,7 @@ export async function listRecurringExpenses(): Promise<RecurringExpense[]> {
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
 
-  const rows = (data as unknown as RecurringExpenseRow[]).map(mapRowToRecurringExpense);
-  return Promise.all(rows.map(withCreatedByName));
+  return (data as unknown as RecurringExpenseRow[]).map(mapRowToRecurringExpense);
 }
 
 export async function getRecurringExpense(id: string): Promise<RecurringExpense | undefined> {
@@ -68,8 +71,7 @@ export async function getRecurringExpense(id: string): Promise<RecurringExpense 
     .eq('id', id)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) return undefined;
-  return withCreatedByName(mapRowToRecurringExpense(data as unknown as RecurringExpenseRow));
+  return data ? mapRowToRecurringExpense(data as unknown as RecurringExpenseRow) : undefined;
 }
 
 export async function createRecurringExpense(
@@ -93,7 +95,7 @@ export async function createRecurringExpense(
     .select(RECURRING_EXPENSE_SELECT)
     .single();
   if (error) throw new Error(error.message);
-  return withCreatedByName(mapRowToRecurringExpense(data as unknown as RecurringExpenseRow));
+  return mapRowToRecurringExpense(data as unknown as RecurringExpenseRow);
 }
 
 export async function updateRecurringExpense(
@@ -116,8 +118,7 @@ export async function updateRecurringExpense(
     .select(RECURRING_EXPENSE_SELECT)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) return undefined;
-  return withCreatedByName(mapRowToRecurringExpense(data as unknown as RecurringExpenseRow));
+  return data ? mapRowToRecurringExpense(data as unknown as RecurringExpenseRow) : undefined;
 }
 
 export async function deleteRecurringExpense(id: string): Promise<boolean> {
