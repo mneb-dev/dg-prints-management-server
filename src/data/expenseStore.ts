@@ -16,7 +16,10 @@ interface ExpenseRow {
   payment_method: string;
   notes: string;
   created_by: string | null;
-  created_by_user: ActorRow | ActorRow[] | null;
+  // Two shapes for the creator's name: the list_expenses RPC joins users and returns a flat
+  // `created_by_name`, while EXPENSE_SELECT (get/create/update) embeds `created_by_user`.
+  created_by_name?: string | null;
+  created_by_user?: ActorRow | ActorRow[] | null;
   recurring_expense_id: string | null;
   commission_order_ids: string[] | null;
   monthly_incentive_release_id: string | null;
@@ -45,7 +48,7 @@ function mapRowToExpense(row: ExpenseRow): Expense {
     paymentMethod: row.payment_method,
     notes: row.notes,
     createdBy: row.created_by,
-    createdByName: actorName(row.created_by_user),
+    createdByName: row.created_by_name || actorName(row.created_by_user),
     recurringExpenseId: row.recurring_expense_id,
     commissionOrderIds: row.commission_order_ids,
     monthlyIncentiveReleaseId: row.monthly_incentive_release_id,

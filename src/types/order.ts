@@ -151,8 +151,18 @@ export interface CustomerRanking {
 // Whole-dataset order KPI aggregates (see `order_stats()` in supabase/migrations/) — powers
 // the dashboard's stat strip and status/payment/channel breakdown cards without the
 // last-100 client-side cap that `fetchRecentOrdersForRankingThunk` is subject to.
+// How long orders have been waiting in one status. `oldestAt` is when that status's
+// longest-waiting order entered it (status_updated_at, or created_at if it never changed status).
+export interface StatusAging {
+  oldestAt: string | null;
+  over3d: number;
+  over7d: number;
+}
+
 export interface OrderStats {
   byStatus: Record<string, number>;
+  // Absent until the order_stats aging migration is applied to the database.
+  agingByStatus?: Record<string, StatusAging>;
   byPaymentStatus: Record<string, number>;
   byChannel: Record<string, number>;
   outstandingBalance: number;

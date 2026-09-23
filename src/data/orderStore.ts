@@ -346,8 +346,15 @@ export async function listTopCustomers(days: number): Promise<CustomerRanking[]>
   }));
 }
 
+interface StatusAgingRow {
+  oldestAt: string | null;
+  over3d: number | string;
+  over7d: number | string;
+}
+
 interface OrderStatsRow {
   byStatus: Record<string, number>;
+  agingByStatus?: Record<string, StatusAgingRow>;
   byPaymentStatus: Record<string, number>;
   byChannel: Record<string, number>;
   outstandingBalance: number | string;
@@ -360,6 +367,17 @@ export async function getOrderStats(): Promise<OrderStats> {
   const row = data as unknown as OrderStatsRow;
   return {
     byStatus: row.byStatus ?? {},
+    // Left undefined (so it's dropped from the JSON) when the database's order_stats() predates
+    // the aging migration — the portal then hides its aging hints instead of showing every order
+    // as "newer".
+    agingByStatus: row.agingByStatus
+      ? Object.fromEntries(
+          Object.entries(row.agingByStatus).map(([status, aging]) => [
+            status,
+            { oldestAt: aging.oldestAt ?? null, over3d: Number(aging.over3d ?? 0), over7d: Number(aging.over7d ?? 0) },
+          ])
+        )
+      : undefined,
     byPaymentStatus: row.byPaymentStatus ?? {},
     byChannel: row.byChannel ?? {},
     outstandingBalance: Number(row.outstandingBalance ?? 0),
