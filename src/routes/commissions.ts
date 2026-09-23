@@ -12,7 +12,7 @@ import {
   unreleaseMonthlyIncentive,
 } from '../data/commissionStore.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
-import { queryString } from './pagination.js';
+import { parsePage, parsePageSize, parseSortBy, queryString } from './pagination.js';
 
 const router = Router();
 
@@ -85,12 +85,37 @@ router.get('/summary', async (req, res, next) => {
   }
 });
 
+const RELEASE_FILTERS = ['all', 'released', 'unreleased'] as const;
+
+// Paged in Node rather than in the RPC: the range is capped at MAX_RANGE_DAYS, so the full set is
+// bounded, and it lets pendingReleaseIds cover every page for the portal's "Release all pending".
 router.get('/orders', async (req, res, next) => {
   try {
     const range = resolveDateRange(req, res);
     if (!range) return;
-    const rows = await listCommissionOrders(range.dateFrom, range.dateTo, range.layoutBy);
-    res.json({ rows });
+    const parsedPageSize = parsePageSize(req.query.pageSize);
+    if (typeof parsedPageSize !== 'number') {
+      res.status(400).json({ error: parsedPageSize.error });
+      return;
+    }
+    const page = parsePage(req.query.page);
+    const release = parseSortBy(req.query.release, RELEASE_FILTERS, 'all');
+
+    const allRows = await listCommissionOrders(range.dateFrom, range.dateTo, range.layoutBy);
+    // Same rule as the portal's getCommissionReleaseStatus: only paid orders can be released.
+    const isReleased = (row: (typeof allRows)[number]) => row.paymentStatus === 'paid' && row.releasedAt !== null;
+    const filtered =
+      release === 'all' ? allRows : allRows.filter((row) => (release === 'released') === isReleased(row));
+    const pendingReleaseIds = allRows
+      .filter((row) => row.paymentStatus === 'paid' && row.releasedAt === null)
+      .map((row) => row.id);
+
+    const from = (page - 1) * parsedPageSize;
+    res.json({
+      rows: filtered.slice(from, from + parsedPageSize),
+      total: filtered.length,
+      pendingReleaseIds,
+    });
   } catch (err) {
     next(err);
   }

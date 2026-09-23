@@ -54,14 +54,29 @@ function mapRowToRecurringExpense(row: RecurringExpenseRow): RecurringExpense {
   };
 }
 
-export async function listRecurringExpenses(): Promise<RecurringExpense[]> {
-  const { data, error } = await supabase
-    .from('recurring_expenses')
-    .select(RECURRING_EXPENSE_SELECT)
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
+export async function listRecurringExpenses(
+  page: number,
+  pageSize: number
+): Promise<{ items: RecurringExpense[]; total: number; activeCount: number }> {
+  const from = (page - 1) * pageSize;
+  // activeCount spans every schedule, not just this page, so it's a separate head-only count.
+  const [pageResult, activeResult] = await Promise.all([
+    supabase
+      .from('recurring_expenses')
+      .select(RECURRING_EXPENSE_SELECT, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + pageSize - 1),
+    supabase.from('recurring_expenses').select('id', { count: 'exact', head: true }).eq('active', true),
+  ]);
+  if (pageResult.error) throw new Error(pageResult.error.message);
+  if (activeResult.error) throw new Error(activeResult.error.message);
 
-  return (data as unknown as RecurringExpenseRow[]).map(mapRowToRecurringExpense);
+  return {
+    items: (pageResult.data as unknown as RecurringExpenseRow[]).map(mapRowToRecurringExpense),
+    total: pageResult.count ?? 0,
+    activeCount: activeResult.count ?? 0,
+  };
 }
 
 export async function getRecurringExpense(id: string): Promise<RecurringExpense | undefined> {

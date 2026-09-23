@@ -90,10 +90,15 @@ function validateFrequency(frequency: unknown): string | null {
 }
 
 // Registered before '/:id' so "recurring" isn't matched as an expense id.
-router.get('/recurring', requireRole('admin', 'superadmin'), async (_req, res, next) => {
+router.get('/recurring', requireRole('admin', 'superadmin'), async (req, res, next) => {
   try {
-    const items = await listRecurringExpenses();
-    res.json({ items });
+    const parsedPageSize = parsePageSize(req.query.pageSize);
+    if (typeof parsedPageSize !== 'number') {
+      res.status(400).json({ error: parsedPageSize.error });
+      return;
+    }
+    const result = await listRecurringExpenses(parsePage(req.query.page), parsedPageSize);
+    res.json(result);
   } catch (err) {
     next(err);
   }
