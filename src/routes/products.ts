@@ -24,6 +24,18 @@ function validateDescription(description: unknown): string | null {
   return null;
 }
 
+function validateShowInShop(showInShop: unknown): string | null {
+  if (showInShop === undefined) return null;
+  if (typeof showInShop !== 'boolean') return '"showInShop" must be a boolean';
+  return null;
+}
+
+function parseShowInShop(value: unknown): boolean | undefined {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
 function validatePricing(pricing: unknown): string | null {
   if (!Array.isArray(pricing) || pricing.length === 0) {
     return '"pricing" must be a non-empty array';
@@ -61,6 +73,7 @@ router.get('/', async (req, res, next) => {
       category: queryString(req.query.category),
       status: queryString(req.query.status),
       pricingType: queryString(req.query.pricingType),
+      showInShop: parseShowInShop(req.query.showInShop),
       sortBy: parseSortBy(req.query.sortBy, PRODUCT_SORT_KEYS, 'created_at'),
       sortDir: parseSortDir(req.query.sortDir),
     });
@@ -95,6 +108,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: descriptionError });
       return;
     }
+    const showInShopError = validateShowInShop(req.body?.showInShop);
+    if (showInShopError) {
+      res.status(400).json({ error: showInShopError });
+      return;
+    }
     const pricingError = validatePricing(req.body?.pricing);
     if (pricingError) {
       res.status(400).json({ error: pricingError });
@@ -112,6 +130,11 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
     const descriptionError = validateDescription(req.body?.description);
     if (descriptionError) {
       res.status(400).json({ error: descriptionError });
+      return;
+    }
+    const showInShopError = validateShowInShop(req.body?.showInShop);
+    if (showInShopError) {
+      res.status(400).json({ error: showInShopError });
       return;
     }
     if (req.body?.pricing !== undefined) {

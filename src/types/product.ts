@@ -25,6 +25,7 @@ export interface Product {
   category: string;
   description: string;
   status: string;
+  showInShop: boolean;
   deletedAt: string | null;
   options: ProductOption[];
   pricing: ProductPricing[];

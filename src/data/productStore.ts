@@ -35,6 +35,7 @@ interface ProductRow {
   category: string;
   description: string;
   status: string;
+  show_in_shop: boolean;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -43,7 +44,7 @@ interface ProductRow {
 }
 
 const PRODUCT_SELECT = `
-  id, name, category, description, status, deleted_at, created_at, updated_at,
+  id, name, category, description, status, show_in_shop, deleted_at, created_at, updated_at,
   options:product_options ( id, name, required, sort_order,
     values:product_option_values ( id, value, sort_order ) ),
   pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order )
@@ -78,6 +79,7 @@ function mapRowToProduct(row: ProductRow): Product {
     category: row.category,
     description: row.description,
     status: row.status,
+    showInShop: row.show_in_shop ?? false,
     deletedAt: row.deleted_at ?? null,
     options,
     pricing,
@@ -93,6 +95,7 @@ function toRpcPayload(product: Product) {
     category: product.category,
     description: product.description,
     status: product.status,
+    show_in_shop: product.showInShop,
     options: product.options.map((option, index) => ({
       id: option.id,
       name: option.name,
@@ -164,6 +167,7 @@ export interface ListProductsParams {
   category?: string;
   status?: string;
   pricingType?: string;
+  showInShop?: boolean;
   sortBy: string;
   sortDir: 'asc' | 'desc';
 }
@@ -176,7 +180,7 @@ export interface ListProductsResult {
 }
 
 export async function listProducts(params: ListProductsParams): Promise<ListProductsResult> {
-  const { page, pageSize, search, category, status, pricingType, sortBy, sortDir } = params;
+  const { page, pageSize, search, category, status, pricingType, showInShop, sortBy, sortDir } = params;
   const { data, error } = await supabase.rpc('list_products', {
     p_search: search || null,
     p_category: category || null,
@@ -186,6 +190,7 @@ export async function listProducts(params: ListProductsParams): Promise<ListProd
     p_offset: pageSize === null ? 0 : (page - 1) * pageSize,
     p_sort_by: sortBy,
     p_sort_dir: sortDir,
+    p_show_in_shop: showInShop ?? null,
   });
   if (error) throw new Error(error.message);
   const payload = data as unknown as { rows: ProductRow[]; total: number };
@@ -216,6 +221,7 @@ export async function createProduct(input: ProductInput): Promise<Product> {
     category: input.category ?? '',
     description: input.description ?? '',
     status: input.status ?? 'Active',
+    showInShop: input.showInShop ?? false,
     deletedAt: null,
     options,
     pricing: normalizePricing(input.pricing, idMap, true),
