@@ -433,7 +433,7 @@ router.put('/:id/or-request', requirePermission('manage_orders'), async (req, re
       res.status(400).json({ error });
       return;
     }
-    const updated = await saveOrRequest(req.params.id, req.body);
+    const updated = await saveOrRequest(req.params.id, req.body, req.user!.role);
     if (!updated) {
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;

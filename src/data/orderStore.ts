@@ -492,9 +492,18 @@ export async function updateOrder(
   return result;
 }
 
-export async function saveOrRequest(orderId: string, input: OrRequestInput): Promise<Order | undefined> {
+/** Staff can't set or change the invoice number (it's issued by the office) — for them the stored
+ * value is kept whatever they send, so saving the OR form never wipes an admin-entered number. */
+export async function saveOrRequest(
+  orderId: string,
+  input: OrRequestInput,
+  role?: string
+): Promise<Order | undefined> {
   const existing = await getOrder(orderId);
   if (!existing) return undefined;
+
+  const invoiceNumber =
+    role === 'staff' ? (existing.orRequest?.invoiceNumber ?? null) : (input.invoiceNumber ?? null);
 
   const { error } = await supabase.from('order_or_requests').upsert(
     {
@@ -502,7 +511,7 @@ export async function saveOrRequest(orderId: string, input: OrRequestInput): Pro
       name: input.name,
       address: input.address,
       tin: input.tin ?? null,
-      invoice_number: input.invoiceNumber ?? null,
+      invoice_number: invoiceNumber,
     },
     { onConflict: 'order_id' }
   );
