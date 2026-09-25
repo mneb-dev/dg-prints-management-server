@@ -56,6 +56,14 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   `toRpcPayload`/`mapRowToProduct` convert between the API's camelCase `Product` shape and the RPC's snake_case
   payload/row shape. Follow this same read-direct / write-via-RPC split for new nested-resource domains rather
   than issuing multiple dependent Supabase calls from route/store code.
+- **Product images** live in the public Supabase Storage bucket `product-images` (created by
+  `20260926090000_create_product_images.sql`), recorded in `product_images` (lowest `sort_order` = main
+  image). They are *not* part of the `upsert_product` payload — they're managed only via
+  `src/routes/productImages.ts` (`/api/products/:id/images`, admin/superadmin only). Upload is
+  direct-to-storage: `POST /upload-url` returns a signed URL, the portal PUTs the (browser-resized WebP)
+  file straight to Storage — keeping files off Vercel's 4.5 MB request body limit — then `POST /` with the
+  path registers it. Storage access goes through the `ImageStorage` adapter in `src/config/imageStorage.ts`.
+  `PRODUCT_SELECT` embeds `product_images`, so that migration must be applied before deploying this code.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.

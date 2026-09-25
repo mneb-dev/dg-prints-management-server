@@ -19,7 +19,12 @@ export const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?
 export const JWT_SECRET = process.env.JWT_SECRET ?? '';
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '12h';
 
-export const CORS_ORIGIN = process.env.CORS_ORIGIN ?? '';
+/** Comma-separated list of allowed origins (e.g. the staff portal and the online shop).
+ *  Empty means allow any origin. */
+export const CORS_ORIGINS = (process.env.CORS_ORIGIN ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 export const SUPERADMIN_USERNAME = process.env.SUPERADMIN_USERNAME ?? '';
 export const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD ?? '';

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { imageStorage } from '../config/imageStorage.js';
 import { supabase } from '../config/supabaseClient.js';
 import type { Product, ProductInput, ProductOption, ProductPricing } from '../types/product.js';
 
@@ -29,6 +30,12 @@ interface PricingRow {
   sort_order: number;
 }
 
+interface ImageRow {
+  id: string;
+  storage_path: string;
+  sort_order: number;
+}
+
 interface ProductRow {
   id: string;
   name: string;
@@ -41,13 +48,15 @@ interface ProductRow {
   updated_at: string;
   options: OptionRow[];
   pricing: PricingRow[];
+  images: ImageRow[];
 }
 
 const PRODUCT_SELECT = `
   id, name, category, description, status, show_in_shop, deleted_at, created_at, updated_at,
   options:product_options ( id, name, required, sort_order,
     values:product_option_values ( id, value, sort_order ) ),
-  pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order )
+  pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order ),
+  images:product_images ( id, storage_path, sort_order )
 `;
 
 function mapRowToProduct(row: ProductRow): Product {
@@ -73,6 +82,10 @@ function mapRowToProduct(row: ProductRow): Product {
       unit: entry.unit,
     }));
 
+  const images = [...(row.images ?? [])]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((image) => ({ id: image.id, url: imageStorage.publicUrl(image.storage_path) }));
+
   return {
     id: row.id,
     name: row.name,
@@ -83,6 +96,7 @@ function mapRowToProduct(row: ProductRow): Product {
     deletedAt: row.deleted_at ?? null,
     options,
     pricing,
+    images,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -225,6 +239,7 @@ export async function createProduct(input: ProductInput): Promise<Product> {
     deletedAt: null,
     options,
     pricing: normalizePricing(input.pricing, idMap, true),
+    images: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -252,6 +267,7 @@ export async function updateProduct(
   const updated: Product = {
     ...existing,
     ...input,
+    images: existing.images,
     options,
     pricing: input.pricing ? normalizePricing(input.pricing, idMap) : existing.pricing,
     id: existing.id,
@@ -275,9 +291,24 @@ export async function deleteProduct(id: string): Promise<boolean> {
   if (countError) throw new Error(countError.message);
 
   if ((count ?? 0) === 0) {
+    // Image rows cascade away with the product, so grab their files' paths first.
+    const { data: imageRows, error: imageError } = await supabase
+      .from('product_images')
+      .select('storage_path')
+      .eq('product_id', id);
+    if (imageError) throw new Error(imageError.message);
+
     const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
     if (error) throw new Error(error.message);
-    return (data?.length ?? 0) > 0;
+    const deleted = (data?.length ?? 0) > 0;
+    if (deleted && imageRows.length > 0) {
+      try {
+        await imageStorage.remove(imageRows.map((row) => row.storage_path as string));
+      } catch (err) {
+        console.error('Failed to remove product images from storage', err);
+      }
+    }
+    return deleted;
   }
 
   const { data, error } = await supabase

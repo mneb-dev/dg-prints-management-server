@@ -3,7 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
-import { CORS_ORIGIN } from './config/env.js';
+import { CORS_ORIGINS } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import categoriesRouter from './routes/categories.js';
@@ -17,8 +17,10 @@ import orderChannelsRouter from './routes/order-channels.js';
 import orderStatusesRouter from './routes/order-statuses.js';
 import ordersRouter from './routes/orders.js';
 import paymentMethodsRouter from './routes/payment-methods.js';
+import productImagesRouter from './routes/productImages.js';
 import productsRouter from './routes/products.js';
 import settingsRouter from './routes/settings.js';
+import shopRouter from './routes/shop.js';
 import testRouter from './routes/test.js';
 import usersRouter from './routes/users.js';
 
@@ -29,13 +31,15 @@ export function createApp() {
   // NodeNext resolvers (observed on Vercel's Linux build) resolve to a
   // non-callable type even though the runtime export is a callable function.
   app.use((helmet as any)());
-  app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : undefined));
+  app.use(cors(CORS_ORIGINS.length > 0 ? { origin: CORS_ORIGINS } : undefined));
   app.use(morgan('dev'));
   app.use(express.json());
 
   app.use('/health', healthRouter);
   app.use('/api/test', testRouter);
   app.use('/api/auth', authRouter);
+  app.use('/api/shop', shopRouter);
+  app.use('/api/products/:id/images', productImagesRouter);
   app.use('/api/products', productsRouter);
   app.use('/api/categories', categoriesRouter);
   app.use('/api/orders', ordersRouter);

@@ -19,6 +19,12 @@ export interface ProductPricing {
   unit: string;
 }
 
+/** A product photo. The first image in a product's list is its main image. */
+export interface ProductImage {
+  id: string;
+  url: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -29,12 +35,13 @@ export interface Product {
   deletedAt: string | null;
   options: ProductOption[];
   pricing: ProductPricing[];
+  images: ProductImage[];
   createdAt: string;
   updatedAt: string;
 }
 
 export type ProductInput = Partial<
-  Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'options' | 'pricing'>
+  Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'options' | 'pricing' | 'images'>
 > & {
   options?: Array<Partial<ProductOption>>;
   pricing?: Array<Partial<ProductPricing>>;
