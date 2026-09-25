@@ -21,11 +21,15 @@ import productImagesRouter from './routes/productImages.js';
 import productsRouter from './routes/products.js';
 import settingsRouter from './routes/settings.js';
 import shopRouter from './routes/shop.js';
+import shopOrdersRouter from './routes/shopOrders.js';
 import testRouter from './routes/test.js';
 import usersRouter from './routes/users.js';
 
 export function createApp() {
   const app = express();
+  // Behind Vercel's proxy: use the client's IP (X-Forwarded-For) so the shop's per-IP order
+  // limit doesn't lump every buyer together.
+  app.set('trust proxy', 1);
 
   // Cast: helmet's package "exports" map lacks a "types" condition, which some
   // NodeNext resolvers (observed on Vercel's Linux build) resolve to a
@@ -38,6 +42,7 @@ export function createApp() {
   app.use('/health', healthRouter);
   app.use('/api/test', testRouter);
   app.use('/api/auth', authRouter);
+  app.use('/api/shop/orders', shopOrdersRouter);
   app.use('/api/shop', shopRouter);
   app.use('/api/products/:id/images', productImagesRouter);
   app.use('/api/products', productsRouter);

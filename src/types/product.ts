@@ -32,6 +32,9 @@ export interface Product {
   description: string;
   status: string;
   showInShop: boolean;
+  /** Customized per buyer (sticker labels, name keychains): the shop shows "Message us on Facebook"
+   *  instead of options + "Add to cart". */
+  madeToOrder: boolean;
   deletedAt: string | null;
   options: ProductOption[];
   pricing: ProductPricing[];

@@ -30,6 +30,12 @@ function validateShowInShop(showInShop: unknown): string | null {
   return null;
 }
 
+function validateMadeToOrder(madeToOrder: unknown): string | null {
+  if (madeToOrder === undefined) return null;
+  if (typeof madeToOrder !== 'boolean') return '"madeToOrder" must be a boolean';
+  return null;
+}
+
 function parseShowInShop(value: unknown): boolean | undefined {
   if (value === 'true') return true;
   if (value === 'false') return false;
@@ -113,6 +119,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: showInShopError });
       return;
     }
+    const madeToOrderError = validateMadeToOrder(req.body?.madeToOrder);
+    if (madeToOrderError) {
+      res.status(400).json({ error: madeToOrderError });
+      return;
+    }
     const pricingError = validatePricing(req.body?.pricing);
     if (pricingError) {
       res.status(400).json({ error: pricingError });
@@ -135,6 +146,11 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
     const showInShopError = validateShowInShop(req.body?.showInShop);
     if (showInShopError) {
       res.status(400).json({ error: showInShopError });
+      return;
+    }
+    const madeToOrderError = validateMadeToOrder(req.body?.madeToOrder);
+    if (madeToOrderError) {
+      res.status(400).json({ error: madeToOrderError });
       return;
     }
     if (req.body?.pricing !== undefined) {

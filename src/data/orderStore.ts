@@ -397,7 +397,8 @@ export async function getOrder(id: string): Promise<Order | undefined> {
   return mapRowToOrder(data as unknown as OrderRow);
 }
 
-export async function createOrder(input: OrderInput, actorId: string): Promise<Order> {
+/** `actorId` is the staff user creating it; null for orders placed through the online shop. */
+export async function createOrder(input: OrderInput, actorId: string | null): Promise<Order> {
   const now = new Date().toISOString();
   const payment: Payment = {
     status: input.payment?.status ?? 'unpaid',

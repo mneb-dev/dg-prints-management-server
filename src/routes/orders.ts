@@ -14,6 +14,7 @@ import { getProduct } from '../data/productStore.js';
 import { getUser } from '../data/userStore.js';
 import { CUSTOMER_RANKING_WINDOW_DAYS } from '../config/env.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { parseLimit, parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
@@ -89,12 +90,6 @@ function validateCustomerName(customerName: unknown, required: boolean): string 
     return '"customerName" must be at most 60 characters';
   }
   return null;
-}
-
-const PH_MOBILE_PHONE_REGEX = /^(?:\+63|63|0)9\d{9}$/;
-
-function isValidPhMobileNumber(value: string): boolean {
-  return PH_MOBILE_PHONE_REGEX.test(value.replace(/[\s-]/g, ''));
 }
 
 function validateCustomerPhone(customerPhone: unknown): string | null {

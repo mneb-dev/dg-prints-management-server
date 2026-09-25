@@ -64,6 +64,15 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   file straight to Storage — keeping files off Vercel's 4.5 MB request body limit — then `POST /` with the
   path registers it. Storage access goes through the `ImageStorage` adapter in `src/config/imageStorage.ts`.
   `PRODUCT_SELECT` embeds `product_images`, so that migration must be applied before deploying this code.
+- **Online shop routes** (`src/routes/shop.ts`, public, no auth) force `show_in_shop` + not deleted themselves;
+  Inactive products are still listed with `inStock: false` ("Out of stock" in the shop).
+  Products also carry `made_to_order` (shop shows "Message us on Facebook" instead of "Add to cart"), and `GET /api/shop/settings` exposes only `app_settings.messenger_url`.
+- **Shop checkout**: `GET /api/shop/shipping` returns the Luzon/Visayas/Mindanao fees
+  (`app_settings.shipping_fee_luzon|visayas|mindanao`) and every province with its region
+  (`src/utils/phProvinces.ts`, the only copy). `POST /api/shop/orders` (`src/routes/shopOrders.ts`, public,
+  rate-limited per IP + honeypot) re-resolves every line's price from the DB (`src/utils/shopPricing.ts`),
+  returns 409 `{ error, itemIndex }` when a line is no longer orderable or its price changed, and creates a
+  pending/unpaid order with channel "Online shop", no `created_by`, and the address joined into one line.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.
