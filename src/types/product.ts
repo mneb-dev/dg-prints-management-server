@@ -35,6 +35,9 @@ export interface Product {
   /** Customized per buyer (sticker labels, name keychains): the shop shows "Message us on Facebook"
    *  instead of options + "Add to cart". */
   madeToOrder: boolean;
+  /** Orders quote this product with its category's dedicated quotation calculator (Sticker Label,
+   *  Laminated Sticker, Tarpaulin, Sintra) instead of the generic options/pricing picker. */
+  customQuotation: boolean;
   deletedAt: string | null;
   options: ProductOption[];
   pricing: ProductPricing[];

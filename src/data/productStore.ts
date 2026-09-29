@@ -44,6 +44,7 @@ interface ProductRow {
   status: string;
   show_in_shop: boolean;
   made_to_order: boolean;
+  custom_quotation: boolean;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -53,7 +54,7 @@ interface ProductRow {
 }
 
 const PRODUCT_SELECT = `
-  id, name, category, description, status, show_in_shop, made_to_order, deleted_at, created_at, updated_at,
+  id, name, category, description, status, show_in_shop, made_to_order, custom_quotation, deleted_at, created_at, updated_at,
   options:product_options ( id, name, required, sort_order,
     values:product_option_values ( id, value, sort_order ) ),
   pricing:product_pricing ( id, applies_to, pricing_type, package_name, price, unit, sort_order ),
@@ -95,6 +96,7 @@ function mapRowToProduct(row: ProductRow): Product {
     status: row.status,
     showInShop: row.show_in_shop ?? false,
     madeToOrder: row.made_to_order ?? false,
+    customQuotation: row.custom_quotation ?? false,
     deletedAt: row.deleted_at ?? null,
     options,
     pricing,
@@ -113,6 +115,7 @@ function toRpcPayload(product: Product) {
     status: product.status,
     show_in_shop: product.showInShop,
     made_to_order: product.madeToOrder,
+    custom_quotation: product.customQuotation,
     options: product.options.map((option, index) => ({
       id: option.id,
       name: option.name,
@@ -240,6 +243,7 @@ export async function createProduct(input: ProductInput): Promise<Product> {
     status: input.status ?? 'Active',
     showInShop: input.showInShop ?? false,
     madeToOrder: input.madeToOrder ?? false,
+    customQuotation: input.customQuotation ?? false,
     deletedAt: null,
     options,
     pricing: normalizePricing(input.pricing, idMap, true),

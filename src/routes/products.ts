@@ -36,6 +36,12 @@ function validateMadeToOrder(madeToOrder: unknown): string | null {
   return null;
 }
 
+function validateCustomQuotation(customQuotation: unknown): string | null {
+  if (customQuotation === undefined) return null;
+  if (typeof customQuotation !== 'boolean') return '"customQuotation" must be a boolean';
+  return null;
+}
+
 function parseShowInShop(value: unknown): boolean | undefined {
   if (value === 'true') return true;
   if (value === 'false') return false;
@@ -124,6 +130,11 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
       res.status(400).json({ error: madeToOrderError });
       return;
     }
+    const customQuotationError = validateCustomQuotation(req.body?.customQuotation);
+    if (customQuotationError) {
+      res.status(400).json({ error: customQuotationError });
+      return;
+    }
     const pricingError = validatePricing(req.body?.pricing);
     if (pricingError) {
       res.status(400).json({ error: pricingError });
@@ -151,6 +162,11 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
     const madeToOrderError = validateMadeToOrder(req.body?.madeToOrder);
     if (madeToOrderError) {
       res.status(400).json({ error: madeToOrderError });
+      return;
+    }
+    const customQuotationError = validateCustomQuotation(req.body?.customQuotation);
+    if (customQuotationError) {
+      res.status(400).json({ error: customQuotationError });
       return;
     }
     if (req.body?.pricing !== undefined) {
