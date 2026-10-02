@@ -70,7 +70,7 @@ begin
 
   return v_order_id;
 end;
-$;
+$$;
 
 -- This function marks a checkout paid and creates the order, so only the server (service role) may
 -- call it — Supabase otherwise lets the public anon/authenticated API roles execute functions.
