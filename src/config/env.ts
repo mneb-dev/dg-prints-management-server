@@ -38,7 +38,7 @@ export const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY ?? '';
 /** The `secret_key` PayMongo returned when this environment's webhook was registered. */
 export const PAYMONGO_WEBHOOK_SECRET = process.env.PAYMONGO_WEBHOOK_SECRET ?? '';
 /** Comma-separated PayMongo payment_method_types; only list methods enabled on the account. */
-export const PAYMONGO_PAYMENT_METHODS = (process.env.PAYMONGO_PAYMENT_METHODS || 'gcash,paymaya')
+export const PAYMONGO_PAYMENT_METHODS = (process.env.PAYMONGO_PAYMENT_METHODS || 'gcash')
   .split(',')
   .map((method) => method.trim())
   .filter(Boolean);

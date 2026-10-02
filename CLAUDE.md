@@ -86,7 +86,7 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   by buyer name or phone digits, `POST /:id/check` runs `recheckShopCheckout` — the portal's "Check payment"
   dialog on the Orders page, for "I was charged but got no order" claims. PayMongo client: `src/utils/paymongo.ts`
   (plain `fetch`, no SDK). Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET` (the `secret_key` returned
-  when registering that environment's webhook), `PAYMONGO_PAYMENT_METHODS` (default `gcash,paymaya`), `SHOP_URL`. Migration
+  when registering that environment's webhook), `PAYMONGO_PAYMENT_METHODS` (default `gcash`; add `paymaya` etc. once enabled), `SHOP_URL`. Migration
   `20261002090000_add_shop_checkouts.sql` must be applied before deploying this code. The PayMongo shipping
   row's thumbnail is `product-images/static/shipping.png` in each environment's Storage, uploaded by hand
   (not part of any migration) — upload it to prod too before go-live.
