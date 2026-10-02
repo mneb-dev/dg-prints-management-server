@@ -71,8 +71,25 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   (`app_settings.shipping_fee_luzon|visayas|mindanao`) and every province with its region
   (`src/utils/phProvinces.ts`, the only copy). `POST /api/shop/orders` (`src/routes/shopOrders.ts`, public,
   rate-limited per IP + honeypot) re-resolves every line's price from the DB (`src/utils/shopPricing.ts`),
-  returns 409 `{ error, itemIndex }` when a line is no longer orderable or its price changed, and creates a
-  pending/unpaid order with channel "Online shop", no `created_by`, and the address joined into one line.
+  returns 409 `{ error, itemIndex }` when a line is no longer orderable or its price changed. A cart with a
+  price-on-request (`Manual`) line becomes a pending/unpaid order right away (channel "Online shop", no
+  `created_by`, address joined into one line) → `{ kind: 'order', orderNumber, total }`.
+- **Shop payments (PayMongo Checkout Sessions)**: a fully-priced cart instead becomes a `shop_checkouts` row
+  holding the frozen `upsert_order` payload (`buildOrder` + `toRpcPayload`) plus a PayMongo session →
+  `{ kind: 'payment', checkoutId, checkoutUrl }`; the shop redirects there. **No order exists until payment
+  is confirmed**: the `complete_shop_checkout` RPC (row-locked, idempotent) creates it as paid, called by
+  both `POST /api/webhooks/paymongo` (`src/routes/paymongoWebhook.ts`, verified via `Paymongo-Signature`
+  against the raw body that `express.json({ verify })` keeps as `req.rawBody`) and
+  `GET /api/shop/checkouts/:id` (`src/routes/shopCheckouts.ts`, polled by the shop's `/checkout/return`
+  page; asks PayMongo directly if the webhook hasn't landed). Staff get the same re-check through
+  `/api/shop-checkouts` (`src/routes/shopCheckoutsAdmin.ts`, `manage_orders`): `GET ?search=` lists checkouts
+  by buyer name or phone digits, `POST /:id/check` runs `recheckShopCheckout` — the portal's "Check payment"
+  dialog on the Orders page, for "I was charged but got no order" claims. PayMongo client: `src/utils/paymongo.ts`
+  (plain `fetch`, no SDK). Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET` (the `secret_key` returned
+  when registering that environment's webhook), `PAYMONGO_PAYMENT_METHODS` (default `gcash,paymaya`), `SHOP_URL`. Migration
+  `20261002090000_add_shop_checkouts.sql` must be applied before deploying this code. The PayMongo shipping
+  row's thumbnail is `product-images/static/shipping.png` in each environment's Storage, uploaded by hand
+  (not part of any migration) — upload it to prod too before go-live.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.

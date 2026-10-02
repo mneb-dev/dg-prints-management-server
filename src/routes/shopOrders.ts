@@ -1,19 +1,26 @@
+import { randomUUID } from 'node:crypto';
+
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 
-import { createOrder } from '../data/orderStore.js';
+import { PAYMONGO_SECRET_KEY, SHOP_URL, SUPABASE_URL } from '../config/env.js';
+import { buildOrder, createOrder, toRpcPayload } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
 import { getSettings } from '../data/settingsStore.js';
-import type { OrderItemInput } from '../types/order.js';
+import { attachCheckoutSession, createShopCheckout, expireShopCheckout } from '../data/shopCheckoutStore.js';
+import type { OrderInput, OrderItem, OrderItemInput } from '../types/order.js';
 import { isShopVisible } from '../types/shop.js';
+import { createCheckoutSession } from '../utils/paymongo.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
 import { computeLineTotal, findPricingEntry, isAreaPriced } from '../utils/shopPricing.js';
 import { isUuid } from '../utils/uuid.js';
 
-// Public checkout for the online shop: turns a cart into a normal pending/unpaid order that staff
-// confirm in the portal. Every price is re-resolved from the database — the client's prices are
-// only compared against, never trusted.
+// Public checkout for the online shop. Every price is re-resolved from the database — the client's
+// prices are only compared against, never trusted. A fully-priced cart becomes a pending shop
+// checkout plus a PayMongo Checkout Session (the order is created, paid, once the payment lands —
+// see shopCheckouts.ts / paymongoWebhook.ts); a cart with a price-on-request line becomes a normal
+// pending/unpaid order right away for staff to quote.
 const router = Router();
 
 export const SHOP_ORDER_CHANNEL = 'Online shop';
@@ -62,6 +69,23 @@ function text(value: unknown, max: number): string | null {
 const optionalString = (value: unknown) => (typeof value === 'string' ? value : undefined);
 const optionalNumber = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
+const roundToCentavo = (amount: number) => Math.round(amount * 100) / 100;
+
+const REGION_LABELS = { luzon: 'Luzon', visayas: 'Visayas', mindanao: 'Mindanao' } as const;
+
+// Thumbnail for the shipping row on PayMongo's page, so it doesn't look like a product. Uploaded by
+// hand to each environment's public product-images bucket (dev and prod are separate projects).
+const SHIPPING_IMAGE_URL = `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/product-images/static/shipping.png`;
+
+/** Second line under a product on PayMongo's page, e.g. "Size: A4 · Matte · 2 × 3 ft". */
+function lineDescription(item: OrderItem): string | undefined {
+  const parts = item.selectedOptions.map((option) => `${option.optionName}: ${option.value}`);
+  const { width, height, packageName } = item.pricing;
+  if (packageName) parts.push(packageName);
+  if (width && height) parts.push(`${width} × ${height} ft`);
+  return parts.length > 0 ? parts.join(' · ').slice(0, 255) : undefined;
+}
+
 /** A cart line the shop must fix before ordering (removed/changed product or price). */
 class LineConflict extends Error {
   constructor(
@@ -72,10 +96,12 @@ class LineConflict extends Error {
   }
 }
 
-async function resolveLine(raw: LineInput, index: number): Promise<OrderItemInput> {
+/** Resolves one cart line; also records the product's main photo in `images` for the payment page. */
+async function resolveLine(raw: LineInput, index: number, images: Map<string, string>): Promise<OrderItemInput> {
   const productId = typeof raw.productId === 'string' && isUuid(raw.productId) ? raw.productId : null;
   const product = productId ? await getProduct(productId) : undefined;
   if (!product || !isShopVisible(product)) throw new LineConflict(index, 'This item is no longer available.');
+  if (product.images[0]?.url) images.set(product.id, product.images[0].url);
   if (product.status !== 'Active') throw new LineConflict(index, `${product.name} is out of stock.`);
   if (product.madeToOrder) throw new LineConflict(index, `${product.name} is made to order — please message us to order it.`);
 
@@ -147,7 +173,10 @@ async function resolveLine(raw: LineInput, index: number): Promise<OrderItemInpu
     packageName: entry.packageName,
     ...(width && height ? { size: { width, height, unit: 'ft' } } : {}),
   };
-  return { ...base, pricing, lineTotal: computeLineTotal(pricing, quantity) };
+  // Whole centavos: size-priced lines can come out fractional (1.15 × 2.30 ft × ₱15 = ₱39.675), and
+  // PayMongo charges whole centavos — rounding here keeps the order, the payment page and the amount
+  // paid in agreement.
+  return { ...base, pricing, lineTotal: roundToCentavo(computeLineTotal(pricing, quantity)) };
 }
 
 router.post('/', placeOrderLimiter, async (req, res, next) => {
@@ -189,8 +218,11 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     }
 
     let items: OrderItemInput[];
+    const productImages = new Map<string, string>();
     try {
-      items = await Promise.all((body.items as LineInput[]).map((line, index) => resolveLine(line ?? {}, index)));
+      items = await Promise.all(
+        (body.items as LineInput[]).map((line, index) => resolveLine(line ?? {}, index, productImages))
+      );
     } catch (err) {
       if (err instanceof LineConflict) {
         res.status(409).json({ error: err.message, itemIndex: err.itemIndex });
@@ -202,28 +234,85 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     const { shippingRates } = await getSettings();
     const shippingFee = shippingRates[region!];
     const subtotal = items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0);
-    const total = subtotal + shippingFee;
+    const total = roundToCentavo(subtotal + shippingFee);
     // One line for the single address column, e.g. "12 Rizal St, Brgy. San Isidro, Quezon City, Metro Manila 1100".
     const barangayLabel = /^(brgy\.?|barangay)\s/i.test(barangay!) ? barangay : `Brgy. ${barangay}`;
     const address = `${street}, ${barangayLabel}, ${city}, ${province}${zip ? ` ${zip}` : ''}`.slice(0, 250);
 
-    const order = await createOrder(
-      {
-        customerName: name!,
-        customerPhone: phone,
-        items,
-        subtotal,
-        discount: 0,
-        total,
-        notes: '',
-        channel: SHOP_ORDER_CHANNEL,
-        shippingAddress: { name: name!, phone, address, fee: shippingFee },
-        payment: { status: 'unpaid', method: null, downPayment: 0, balance: total },
-      },
-      null
-    );
+    const orderInput: OrderInput = {
+      customerName: name!,
+      customerPhone: phone,
+      items,
+      subtotal,
+      discount: 0,
+      total,
+      notes: '',
+      channel: SHOP_ORDER_CHANNEL,
+      shippingAddress: { name: name!, phone, address, fee: shippingFee },
+      payment: { status: 'unpaid', method: null, downPayment: 0, balance: total },
+    };
 
-    res.status(201).json({ orderNumber: order.orderNumber, total: order.total });
+    // A "price on request" line means the total isn't final, so there's nothing to charge yet:
+    // place the order unpaid and staff quote + collect payment, as before online payments.
+    if (items.some((item) => item.pricing?.pricingType === 'Manual')) {
+      const order = await createOrder(orderInput, null);
+      res.status(201).json({ kind: 'order', orderNumber: order.orderNumber, total: order.total });
+      return;
+    }
+
+    // Otherwise the buyer pays first; the order is only created once PayMongo confirms it.
+    if (!PAYMONGO_SECRET_KEY || !SHOP_URL) {
+      console.error('Shop checkout: PAYMONGO_SECRET_KEY and SHOP_URL must be set to take online payments.');
+      res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
+      return;
+    }
+    const order = buildOrder(orderInput, null);
+    const checkoutId = randomUUID();
+    await createShopCheckout(checkoutId, toRpcPayload(order), total);
+    let session;
+    try {
+      session = await createCheckoutSession({
+        lineItems: [
+          ...order.items.map((item) => {
+            const imageUrl = productImages.get(item.productId);
+            return {
+              name: `${item.productName}${item.quantity > 1 ? ` ×${item.quantity}` : ''}`,
+              description: lineDescription(item),
+              images: imageUrl ? [imageUrl] : undefined,
+              amount: item.lineTotal,
+              quantity: 1,
+            };
+          }),
+          // PayMongo won't take a ₱0 line, so free shipping simply has no row.
+          ...(shippingFee > 0
+            ? [
+                {
+                  name: 'Shipping fee',
+                  description: `Delivery to ${city}, ${province} · ${REGION_LABELS[region!]} rate`,
+                  images: [SHIPPING_IMAGE_URL],
+                  amount: shippingFee,
+                  quantity: 1,
+                },
+              ]
+            : []),
+        ],
+        total,
+        referenceNumber: checkoutId,
+        description: 'DG Prints online order',
+        successUrl: `${SHOP_URL}/checkout/return?id=${checkoutId}`,
+        cancelUrl: `${SHOP_URL}/checkout?payment=cancelled`,
+        billing: { name: name!, phone },
+        metadata: { checkoutId },
+      });
+    } catch (err) {
+      console.error(err);
+      await expireShopCheckout(checkoutId);
+      res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
+      return;
+    }
+    await attachCheckoutSession(checkoutId, session.id, session.checkoutUrl);
+
+    res.status(201).json({ kind: 'payment', checkoutId, checkoutUrl: session.checkoutUrl });
   } catch (err) {
     next(err);
   }

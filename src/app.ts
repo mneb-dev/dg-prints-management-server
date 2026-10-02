@@ -17,13 +17,17 @@ import orderChannelsRouter from './routes/order-channels.js';
 import orderStatusesRouter from './routes/order-statuses.js';
 import ordersRouter from './routes/orders.js';
 import paymentMethodsRouter from './routes/payment-methods.js';
+import paymongoWebhookRouter from './routes/paymongoWebhook.js';
 import productImagesRouter from './routes/productImages.js';
 import productsRouter from './routes/products.js';
 import settingsRouter from './routes/settings.js';
 import shopRouter from './routes/shop.js';
+import shopCheckoutsRouter from './routes/shopCheckouts.js';
+import shopCheckoutsAdminRouter from './routes/shopCheckoutsAdmin.js';
 import shopOrdersRouter from './routes/shopOrders.js';
 import testRouter from './routes/test.js';
 import usersRouter from './routes/users.js';
+import type { RawBodyRequest } from './types/http.js';
 
 export function createApp() {
   const app = express();
@@ -37,12 +41,22 @@ export function createApp() {
   app.use((helmet as any)());
   app.use(cors(CORS_ORIGINS.length > 0 ? { origin: CORS_ORIGINS } : undefined));
   app.use(morgan('dev'));
-  app.use(express.json());
+  // Keep the raw bytes too: the PayMongo webhook's signature is computed over the exact body.
+  app.use(
+    express.json({
+      verify: (req, _res, buf) => {
+        (req as RawBodyRequest).rawBody = buf;
+      },
+    })
+  );
 
   app.use('/health', healthRouter);
   app.use('/api/test', testRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/shop/orders', shopOrdersRouter);
+  app.use('/api/shop/checkouts', shopCheckoutsRouter);
+  app.use('/api/webhooks/paymongo', paymongoWebhookRouter);
+  app.use('/api/shop-checkouts', shopCheckoutsAdminRouter);
   app.use('/api/shop', shopRouter);
   app.use('/api/products/:id/images', productImagesRouter);
   app.use('/api/products', productsRouter);
