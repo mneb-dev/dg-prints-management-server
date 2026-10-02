@@ -186,7 +186,24 @@ function mapRowToOrder(row: OrderRow): Order {
       balance: Number(row.payment_balance),
     },
     orRequest: mapOrRequestRow(row.or_request),
+    paidOnline: false, // set by markPaidOnline
   };
+}
+
+/** Sets `paidOnline` on orders created by a paid PayMongo checkout (see shop_checkouts). */
+async function markPaidOnline(orders: Order[]): Promise<Order[]> {
+  if (orders.length === 0) return orders;
+  const { data, error } = await supabase
+    .from('shop_checkouts')
+    .select('order_id')
+    .eq('status', 'paid')
+    .in(
+      'order_id',
+      orders.map((order) => order.id)
+    );
+  if (error) throw new Error(error.message);
+  const paid = new Set((data ?? []).map((row) => row.order_id as string));
+  return orders.map((order) => ({ ...order, paidOnline: paid.has(order.id) }));
 }
 
 /** Snake_case payload for the `upsert_order` RPC (also frozen as-is by shop checkouts awaiting payment). */
@@ -320,7 +337,7 @@ export async function listOrders(params: ListOrdersParams): Promise<ListOrdersRe
   if (error) throw new Error(error.message);
   const payload = data as unknown as { rows: OrderRow[]; total: number };
   return {
-    items: payload.rows.map(mapRowToOrder),
+    items: await markPaidOnline(payload.rows.map(mapRowToOrder)),
     total: payload.total,
     page,
     pageSize,
@@ -395,7 +412,8 @@ export async function getOrder(id: string): Promise<Order | undefined> {
   if (error) throw new Error(error.message);
   if (!data) return undefined;
 
-  return mapRowToOrder(data as unknown as OrderRow);
+  const [order] = await markPaidOnline([mapRowToOrder(data as unknown as OrderRow)]);
+  return order;
 }
 
 /** A new, not-yet-saved order. `actorId` is the staff user creating it; null for online shop orders. */
@@ -434,6 +452,7 @@ export function buildOrder(input: OrderInput, actorId: string | null): Order {
     shippingAddress: input.shippingAddress ?? null,
     payment,
     orRequest: null,
+    paidOnline: false,
   };
 }
 
