@@ -3,14 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 
-import { PAYMONGO_SECRET_KEY, SHOP_URL, SUPABASE_URL } from '../config/env.js';
+import { PAYMONGO_SECRET_KEY, SHOP_URL } from '../config/env.js';
 import { buildOrder, createOrder, toRpcPayload } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
 import { getSettings } from '../data/settingsStore.js';
-import { attachCheckoutSession, createShopCheckout, expireShopCheckout } from '../data/shopCheckoutStore.js';
-import type { OrderInput, OrderItem, OrderItemInput } from '../types/order.js';
+import { attachPaymentIntent, createShopCheckout, expireShopCheckout } from '../data/shopCheckoutStore.js';
+import type { OrderInput, OrderItemInput } from '../types/order.js';
 import { isShopVisible } from '../types/shop.js';
-import { createCheckoutSession } from '../utils/paymongo.js';
+import { startPayment, toShopPaymentMethods } from '../utils/paymongo.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
 import { computeLineTotal, findPricingEntry, isAreaPriced, withConvenienceFee } from '../utils/shopPricing.js';
@@ -18,7 +18,8 @@ import { isUuid } from '../utils/uuid.js';
 
 // Public checkout for the online shop. Every price is re-resolved from the database — the client's
 // prices are only compared against, never trusted. A fully-priced cart becomes a pending shop
-// checkout plus a PayMongo Checkout Session (the order is created, paid, once the payment lands —
+// checkout plus a PayMongo Payment Intent for the method the buyer picked, and the buyer goes straight
+// to GCash/Maya (the order is created, paid, once the payment lands —
 // see shopCheckouts.ts / paymongoWebhook.ts); a cart with a price-on-request line becomes a normal
 // pending/unpaid order right away for staff to quote.
 const router = Router();
@@ -44,6 +45,8 @@ type Body = {
   customer?: { name?: unknown; phone?: unknown };
   address?: { street?: unknown; barangay?: unknown; city?: unknown; province?: unknown; zip?: unknown };
   items?: unknown;
+  /** PayMongo payment method type the buyer picked, e.g. "gcash"; defaults to the first offered. */
+  paymentMethod?: unknown;
   website?: unknown;
 };
 
@@ -80,43 +83,6 @@ function convenienceFeeNote(percent: number): string {
   return full.length <= 20 ? full : `Conv. fee ${formatPercent(percent)}%`;
 }
 
-const REGION_LABELS = { luzon: 'Luzon', visayas: 'Visayas', mindanao: 'Mindanao' } as const;
-
-// Thumbnail for the shipping row on PayMongo's page, so it doesn't look like a product. Uploaded by
-// hand to each environment's public product-images bucket (dev and prod are separate projects).
-const SHIPPING_IMAGE_URL = `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/product-images/static/shipping.png`;
-
-/** Second line under a product on PayMongo's page, e.g. "Size: A4 · Matte · 2 × 3 ft". The package
- *  name is skipped when it just repeats a chosen option (price entries are often named after the
- *  option value they apply to, e.g. a "Red" entry for Color: Red). */
-export function lineDescription(item: OrderItem): string | undefined {
-  const parts = item.selectedOptions.map((option) => `${option.optionName}: ${option.value}`);
-  const { width, height, packageName } = item.pricing;
-  const chosenValues = new Set(item.selectedOptions.map((option) => option.value.trim().toLowerCase()));
-  if (packageName && !chosenValues.has(packageName.trim().toLowerCase())) parts.push(packageName);
-  if (width && height) parts.push(`${width} × ${height} ft`);
-  return parts.length > 0 ? parts.join(' · ').slice(0, 255) : undefined;
-}
-
-/**
- * Name/amount/quantity for one product line on PayMongo's page. Sends the real quantity with the
- * per-piece price when the line total splits into whole centavos per piece (always for fixed and
- * package prices: 5 × ₱55). Size-priced lines can have a fractional per-piece price, and PayMongo
- * only takes whole centavos per unit — those go as one unit for the whole line, with "×qty" in the
- * name, so the amounts still add up to the order total exactly.
- */
-export function paymongoLineAmounts(
-  productName: string,
-  quantity: number,
-  lineTotal: number
-): { name: string; amount: number; quantity: number } {
-  const lineCentavos = Math.round(lineTotal * 100);
-  if (quantity > 1 && lineCentavos % quantity === 0) {
-    return { name: productName, amount: lineCentavos / quantity / 100, quantity };
-  }
-  return { name: `${productName}${quantity > 1 ? ` ×${quantity}` : ''}`, amount: lineTotal, quantity: 1 };
-}
-
 /** A cart line the shop must fix before ordering (removed/changed product or price). */
 class LineConflict extends Error {
   constructor(
@@ -130,8 +96,6 @@ class LineConflict extends Error {
 /** Per-request context for resolving cart lines. */
 interface LineContext {
   convenienceFeePercent: number;
-  /** Product id → main photo URL, for the payment page. */
-  images: Map<string, string>;
   /** Line index → the line total the shop showed (convenience fee baked into the unit price). */
   shopLineTotals: number[];
 }
@@ -142,11 +106,9 @@ interface LineContext {
  * additional fees.
  */
 async function resolveLine(raw: LineInput, index: number, ctx: LineContext): Promise<OrderItemInput> {
-  const images = ctx.images;
   const productId = typeof raw.productId === 'string' && isUuid(raw.productId) ? raw.productId : null;
   const product = productId ? await getProduct(productId) : undefined;
   if (!product || !isShopVisible(product)) throw new LineConflict(index, 'This item is no longer available.');
-  if (product.images[0]?.url) images.set(product.id, product.images[0].url);
   if (product.status !== 'Active') throw new LineConflict(index, `${product.name} is out of stock.`);
   if (product.madeToOrder) throw new LineConflict(index, `${product.name} is made to order — please message us to order it.`);
 
@@ -267,9 +229,16 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       return;
     }
 
-    const { shippingRates, convenienceFeePercent } = await getSettings();
-    const lineContext: LineContext = { convenienceFeePercent, images: new Map(), shopLineTotals: [] };
-    const productImages = lineContext.images;
+
+    const { shippingRates, convenienceFeePercent, shopPaymentMethods } = await getSettings();
+
+    // Only matters if the cart is paid online; the first offered method (GCash) is the default.
+    const offeredMethods = toShopPaymentMethods(shopPaymentMethods);
+    const paymentMethod =
+      body.paymentMethod === undefined || body.paymentMethod === null || body.paymentMethod === ''
+        ? offeredMethods[0]
+        : offeredMethods.find((method) => method.type === body.paymentMethod);
+    const lineContext: LineContext = { convenienceFeePercent, shopLineTotals: [] };
     let items: OrderItemInput[];
     try {
       items = await Promise.all(
@@ -318,6 +287,10 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     }
 
     // Otherwise the buyer pays first; the order is only created once PayMongo confirms it.
+    if (!paymentMethod) {
+      res.status(400).json({ error: 'Choose a payment method.' });
+      return;
+    }
     if (!PAYMONGO_SECRET_KEY || !SHOP_URL) {
       console.error('Shop checkout: PAYMONGO_SECRET_KEY and SHOP_URL must be set to take online payments.');
       res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
@@ -326,38 +299,15 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     const order = buildOrder(orderInput, null);
     const checkoutId = randomUUID();
     await createShopCheckout(checkoutId, toRpcPayload(order), order.total);
-    let session;
+    // Straight to GCash/Maya: a Payment Intent for the method the buyer picked on our checkout.
+    let payment;
     try {
-      session = await createCheckoutSession({
-        lineItems: [
-          ...order.items.map((item, index) => {
-            const imageUrl = productImages.get(item.productId);
-            return {
-              // What the shop showed for this line (convenience fee included).
-              ...paymongoLineAmounts(item.productName, item.quantity, lineContext.shopLineTotals[index]),
-              description: lineDescription(item),
-              images: imageUrl ? [imageUrl] : undefined,
-            };
-          }),
-          // PayMongo won't take a ₱0 line, so free shipping simply has no row.
-          ...(shippingFee > 0
-            ? [
-                {
-                  name: 'Shipping fee',
-                  description: `Delivery to ${city}, ${province} · ${REGION_LABELS[region!]} rate`,
-                  images: [SHIPPING_IMAGE_URL],
-                  amount: shippingFee,
-                  quantity: 1,
-                },
-              ]
-            : []),
-        ],
-        total: order.total,
-        referenceNumber: checkoutId,
-        description: 'DG Prints online order',
-        successUrl: `${SHOP_URL}/checkout/return?id=${checkoutId}`,
-        cancelUrl: `${SHOP_URL}/checkout?payment=cancelled`,
-        billing: { name: name!, phone },
+      payment = await startPayment({
+        amount: order.total,
+        methodType: paymentMethod.type,
+        // Shown in PayMongo's dashboard and GCash/Maya receipts.
+        description: `DG Prints online order · ${name}`.slice(0, 255),
+        returnUrl: `${SHOP_URL}/checkout/return?id=${checkoutId}`,
         metadata: { checkoutId },
       });
     } catch (err) {
@@ -366,9 +316,9 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
       return;
     }
-    await attachCheckoutSession(checkoutId, session.id, session.checkoutUrl);
+    await attachPaymentIntent(checkoutId, payment.id, payment.redirectUrl);
 
-    res.status(201).json({ kind: 'payment', checkoutId, checkoutUrl: session.checkoutUrl });
+    res.status(201).json({ kind: 'payment', checkoutId, checkoutUrl: payment.redirectUrl });
   } catch (err) {
     next(err);
   }

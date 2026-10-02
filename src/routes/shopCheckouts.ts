@@ -29,6 +29,8 @@ router.get('/:id', statusLimiter, async (req, res, next) => {
     const checkout = found.status === 'pending' ? await recheckShopCheckout(found) : found;
     if (checkout.status === 'paid') {
       res.json({ status: 'paid', orderNumber: checkout.orderNumber ?? '', total: checkout.total });
+    } else if (checkout.status === 'failed') {
+      res.json({ status: 'failed' });
     } else if (checkout.status === 'expired' || !checkout.checkoutUrl) {
       res.json({ status: 'expired' });
     } else {

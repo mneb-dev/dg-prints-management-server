@@ -12,9 +12,12 @@ export interface AppSettings {
   messengerUrl: string;
   /** Online shop convenience fee (% of items + shipping) added when the buyer pays through PayMongo; 0 = off. */
   convenienceFeePercent: number;
+  /** Online payment options the shop's checkout lists (PayMongo types, display order; first = default).
+   *  Separate from the payment_methods catalog staff use on orders. */
+  shopPaymentMethods: string[];
   updatedAt: string;
 }
 
 export type AppSettingsInput = Partial<
-  Pick<AppSettings, 'shippingFee' | 'shippingRates' | 'messengerUrl' | 'convenienceFeePercent'>
+  Pick<AppSettings, 'shippingFee' | 'shippingRates' | 'messengerUrl' | 'convenienceFeePercent' | 'shopPaymentMethods'>
 >;

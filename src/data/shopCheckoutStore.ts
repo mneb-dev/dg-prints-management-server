@@ -1,16 +1,26 @@
 import { supabase } from '../config/supabaseClient.js';
-import { paymentMethodLabel, retrieveCheckoutSession, type CheckoutSession } from '../utils/paymongo.js';
+import {
+  paymentMethodLabel,
+  retrieveCheckoutSession,
+  retrievePaymentIntent,
+  type CheckoutSessionPayment,
+} from '../utils/paymongo.js';
 
 // Shop carts waiting for online payment. The order itself is only created (as paid) by the
 // complete_shop_checkout RPC once PayMongo confirms the payment.
 
-export type ShopCheckoutStatus = 'pending' | 'paid' | 'expired';
+/** failed = the buyer cancelled or the payment was declined (Payment Intent checkouts). */
+export type ShopCheckoutStatus = 'pending' | 'paid' | 'expired' | 'failed';
 
 export interface ShopCheckout {
   id: string;
   total: number;
   status: ShopCheckoutStatus;
+  /** Older checkouts: PayMongo's hosted Checkout Session. */
   paymongoCheckoutSessionId: string | null;
+  /** Current checkouts: a Payment Intent for the method the buyer picked. */
+  paymongoPaymentIntentId: string | null;
+  /** Where the buyer pays: the hosted page (sessions) or the GCash/Maya page (intents). */
   checkoutUrl: string | null;
   orderId: string | null;
   orderNumber: string | null;
@@ -29,6 +39,7 @@ interface ShopCheckoutRow {
   total: number | string;
   status: ShopCheckoutStatus;
   paymongo_checkout_session_id: string | null;
+  paymongo_payment_intent_id: string | null;
   checkout_url: string | null;
   order_id: string | null;
   payment_method: string | null;
@@ -42,7 +53,8 @@ interface ShopCheckoutRow {
 }
 
 const SELECT =
-  'id, total, status, paymongo_checkout_session_id, checkout_url, order_id, payment_method, amount_paid, ' +
+  'id, total, status, paymongo_checkout_session_id, paymongo_payment_intent_id, checkout_url, order_id, ' +
+  'payment_method, amount_paid, ' +
   'customer_name, customer_phone:order_payload->>customer_phone, items:order_payload->items, created_at, paid_at, ' +
   'order:orders(order_number)';
 
@@ -52,6 +64,7 @@ function mapRow(row: ShopCheckoutRow): ShopCheckout {
     total: Number(row.total),
     status: row.status,
     paymongoCheckoutSessionId: row.paymongo_checkout_session_id,
+    paymongoPaymentIntentId: row.paymongo_payment_intent_id,
     checkoutUrl: row.checkout_url,
     orderId: row.order_id,
     orderNumber: row.order?.order_number ?? null,
@@ -81,6 +94,14 @@ export async function attachCheckoutSession(id: string, sessionId: string, check
   if (error) throw new Error(error.message);
 }
 
+export async function attachPaymentIntent(id: string, intentId: string, paymentUrl: string): Promise<void> {
+  const { error } = await supabase
+    .from('shop_checkouts')
+    .update({ paymongo_payment_intent_id: intentId, checkout_url: paymentUrl })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
 export async function getShopCheckout(id: string): Promise<ShopCheckout | undefined> {
   const { data, error } = await supabase.from('shop_checkouts').select(SELECT).eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
@@ -92,6 +113,16 @@ export async function findShopCheckoutBySession(sessionId: string): Promise<Shop
     .from('shop_checkouts')
     .select(SELECT)
     .eq('paymongo_checkout_session_id', sessionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapRow(data as unknown as ShopCheckoutRow) : undefined;
+}
+
+export async function findShopCheckoutByIntent(intentId: string): Promise<ShopCheckout | undefined> {
+  const { data, error } = await supabase
+    .from('shop_checkouts')
+    .select(SELECT)
+    .eq('paymongo_payment_intent_id', intentId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? mapRow(data as unknown as ShopCheckoutRow) : undefined;
@@ -121,6 +152,12 @@ export async function expireShopCheckout(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/** The buyer cancelled or the payment was declined. Only a pending checkout changes. */
+export async function failShopCheckout(id: string): Promise<void> {
+  const { error } = await supabase.from('shop_checkouts').update({ status: 'failed' }).eq('id', id).eq('status', 'pending');
+  if (error) throw new Error(error.message);
+}
+
 /** Creates the paid order (once — repeat calls return the same order id). */
 async function completeShopCheckout(
   id: string,
@@ -136,27 +173,39 @@ async function completeShopCheckout(
   return data as string;
 }
 
-/** Creates the paid order if `session` has a paid payment; returns the order id, or null if unpaid. */
-export async function settleShopCheckout(checkout: ShopCheckout, session: CheckoutSession): Promise<string | null> {
+/** Creates the paid order for a confirmed PayMongo payment; returns the order id, or null if unpaid. */
+export async function settleShopCheckout(
+  checkout: ShopCheckout,
+  payment: CheckoutSessionPayment | null
+): Promise<string | null> {
   if (checkout.status === 'paid') return checkout.orderId;
-  if (!session.payment) return null;
+  if (!payment) return null;
   return completeShopCheckout(checkout.id, {
-    paymentId: session.payment.id,
-    method: paymentMethodLabel(session.payment.methodType),
-    amount: session.payment.amount,
+    paymentId: payment.id,
+    method: paymentMethodLabel(payment.methodType),
+    amount: payment.amount,
   });
 }
 
 /**
  * Asks PayMongo where a not-yet-paid checkout stands and acts on it: creates the paid order if the
- * money is there, marks it expired if PayMongo expired the session. Returns the fresh checkout.
- * Used by the shop's return page and the portal's "Check payment" (also for checkouts already
- * marked expired — a payment can still land on a session we gave up on).
+ * money is there; otherwise marks it failed (intent back to awaiting a payment method: cancelled or
+ * declined) or expired (session expired). Returns the fresh checkout. Used by the shop's return page
+ * and the portal's "Check payment" (also for checkouts already marked expired/failed — a payment
+ * can still land after we gave up).
  */
 export async function recheckShopCheckout(checkout: ShopCheckout): Promise<ShopCheckout> {
-  if (checkout.status === 'paid' || !checkout.paymongoCheckoutSessionId) return checkout;
-  const session = await retrieveCheckoutSession(checkout.paymongoCheckoutSessionId);
-  const orderId = await settleShopCheckout(checkout, session);
-  if (!orderId && session.status === 'expired') await expireShopCheckout(checkout.id);
+  if (checkout.status === 'paid') return checkout;
+  if (checkout.paymongoPaymentIntentId) {
+    const intent = await retrievePaymentIntent(checkout.paymongoPaymentIntentId);
+    const orderId = await settleShopCheckout(checkout, intent.payment);
+    if (!orderId && intent.status === 'awaiting_payment_method') await failShopCheckout(checkout.id);
+  } else if (checkout.paymongoCheckoutSessionId) {
+    const session = await retrieveCheckoutSession(checkout.paymongoCheckoutSessionId);
+    const orderId = await settleShopCheckout(checkout, session.payment);
+    if (!orderId && session.status === 'expired') await expireShopCheckout(checkout.id);
+  } else {
+    return checkout;
+  }
   return (await getShopCheckout(checkout.id)) ?? checkout;
 }

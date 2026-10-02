@@ -33,15 +33,10 @@ export const CUSTOMER_RANKING_WINDOW_DAYS = Number(process.env.CUSTOMER_RANKING_
 
 export const CRON_SECRET = process.env.CRON_SECRET ?? '';
 
-/** Online shop payments (PayMongo Checkout Sessions). Test keys on dev, live keys on prod. */
+/** Online shop payments (PayMongo). Test keys on dev, live keys on prod. */
 export const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY ?? '';
 /** The `secret_key` PayMongo returned when this environment's webhook was registered. */
 export const PAYMONGO_WEBHOOK_SECRET = process.env.PAYMONGO_WEBHOOK_SECRET ?? '';
-/** Comma-separated PayMongo payment_method_types; only list methods enabled on the account. */
-export const PAYMONGO_PAYMENT_METHODS = (process.env.PAYMONGO_PAYMENT_METHODS || 'gcash')
-  .split(',')
-  .map((method) => method.trim())
-  .filter(Boolean);
 /** Public online shop URL (no trailing slash) — PayMongo sends buyers back here after paying. */
 export const SHOP_URL = (process.env.SHOP_URL ?? '').replace(/\/+$/, '');
 

@@ -1,23 +1,35 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-import { PAYMONGO_PAYMENT_METHODS, PAYMONGO_SECRET_KEY, PAYMONGO_WEBHOOK_SECRET } from '../config/env.js';
+import { PAYMONGO_SECRET_KEY, PAYMONGO_WEBHOOK_SECRET } from '../config/env.js';
 
-// Thin client for the bits of PayMongo's API the online shop uses (Checkout Sessions + webhooks).
-// Docs: https://developers.paymongo.com/reference/checkout-session-resource
+// Thin client for the bits of PayMongo's API the online shop uses. New checkouts use Payment
+// Intents (our checkout lists the methods; the buyer goes straight to GCash/Maya); Checkout
+// Sessions (PayMongo's hosted page) remain only so older pending checkouts can still settle.
+// Docs: https://docs.paymongo.com/docs/payment-acceptance-key-concepts
 
 const API_BASE = 'https://api.paymongo.com/v1';
 
 export class PayMongoError extends Error {}
 
-export interface CheckoutLineItem {
-  name: string;
-  /** Smaller text under the name on PayMongo's page. */
-  description?: string;
-  /** Public https image URLs; PayMongo shows the first as the line's thumbnail. */
-  images?: string[];
-  /** Pesos; converted to centavos here. */
-  amount: number;
-  quantity: number;
+/** A payment method the shop offers, in display order (the first is preselected). */
+export interface ShopPaymentMethod {
+  /** PayMongo payment method type, e.g. "gcash", "paymaya". */
+  type: string;
+  label: string;
+}
+
+/**
+ * Payment method types the shop's direct-to-wallet flow supports: ones where attaching the method
+ * returns a page to send the buyer to. (Cards and QR Ph need extra screens on our checkout.) Which of
+ * these the checkout actually lists is `app_settings.shop_payment_methods` (portal Settings).
+ */
+export const SUPPORTED_SHOP_PAYMENT_METHODS = ['gcash', 'paymaya'] as const;
+
+/** The shop's list, in the order saved in Settings (the first is preselected). */
+export function toShopPaymentMethods(types: string[]): ShopPaymentMethod[] {
+  return types
+    .filter((type) => (SUPPORTED_SHOP_PAYMENT_METHODS as readonly string[]).includes(type))
+    .map((type) => ({ type, label: paymentMethodLabel(type) }));
 }
 
 export interface CheckoutSessionPayment {
@@ -40,7 +52,7 @@ export interface CheckoutSession {
 
 const toCentavos = (pesos: number) => Math.round(pesos * 100);
 
-async function request(path: string, init: { method: 'GET' | 'POST'; body?: unknown }) {
+async function request(path: string, init: { method: 'GET' | 'POST'; body?: unknown }): Promise<unknown> {
   if (!PAYMONGO_SECRET_KEY) throw new PayMongoError('PAYMONGO_SECRET_KEY is not set');
   const response = await fetch(`${API_BASE}${path}`, {
     method: init.method,
@@ -91,55 +103,120 @@ export function parseCheckoutSession(raw: unknown): CheckoutSession {
   };
 }
 
-export async function createCheckoutSession(params: {
-  lineItems: CheckoutLineItem[];
-  /** Pesos; the line items must add up to exactly this. */
-  total: number;
-  referenceNumber: string;
-  description: string;
-  successUrl: string;
-  cancelUrl: string;
-  billing: { name: string; phone: string };
-  metadata: Record<string, string>;
-}): Promise<CheckoutSession> {
-  const lineItems = params.lineItems.map((item) => ({
-    name: item.name,
-    ...(item.description ? { description: item.description } : {}),
-    ...(item.images?.length ? { images: item.images } : {}),
-    quantity: item.quantity,
-    amount: toCentavos(item.amount),
-    currency: 'PHP',
-  }));
-  const sum = lineItems.reduce((total, item) => total + item.amount * item.quantity, 0);
-  if (sum !== toCentavos(params.total)) {
-    throw new PayMongoError(`Line items add up to ${sum} centavos, expected ${toCentavos(params.total)}`);
-  }
-
-  const data = await request('/checkout_sessions', {
-    method: 'POST',
-    body: {
-      data: {
-        attributes: {
-          line_items: lineItems,
-          payment_method_types: PAYMONGO_PAYMENT_METHODS,
-          reference_number: params.referenceNumber,
-          description: params.description,
-          success_url: params.successUrl,
-          cancel_url: params.cancelUrl,
-          billing: params.billing,
-          send_email_receipt: false,
-          show_description: true,
-          show_line_items: true,
-          metadata: params.metadata,
-        },
-      },
-    },
-  });
-  return parseCheckoutSession(data);
-}
-
 export async function retrieveCheckoutSession(id: string): Promise<CheckoutSession> {
   return parseCheckoutSession(await request(`/checkout_sessions/${encodeURIComponent(id)}`, { method: 'GET' }));
+}
+
+// ---------- Payment Intents ----------
+
+export interface PaymentIntent {
+  id: string;
+  /** awaiting_payment_method | awaiting_next_action | processing | succeeded */
+  status: string;
+  /** Where to send the buyer to authorize (GCash/Maya page), after a method is attached. */
+  redirectUrl: string;
+  /** The first paid payment, once the buyer has paid. */
+  payment: CheckoutSessionPayment | null;
+}
+
+type RawPaymentIntent = {
+  id?: string;
+  attributes?: {
+    status?: string;
+    payments?: RawPayment[];
+    next_action?: { redirect?: { url?: string } } | null;
+  };
+};
+
+function parsePaymentIntent(raw: unknown): PaymentIntent {
+  const intent = (raw ?? {}) as RawPaymentIntent;
+  const attributes = intent.attributes ?? {};
+  const paid = (attributes.payments ?? []).find((payment) => payment.attributes?.status === 'paid');
+  return {
+    id: intent.id ?? '',
+    status: attributes.status ?? '',
+    redirectUrl: attributes.next_action?.redirect?.url ?? '',
+    payment: paid?.id
+      ? { id: paid.id, amount: (paid.attributes?.amount ?? 0) / 100, methodType: paid.attributes?.source?.type ?? '' }
+      : null,
+  };
+}
+
+/** A `payment` resource, as sent in `payment.paid` / `payment.failed` webhook events. */
+export interface PaymentEventData {
+  id: string;
+  status: string;
+  /** Pesos. */
+  amount: number;
+  methodType: string;
+  paymentIntentId: string;
+}
+
+export function parsePaymentEvent(raw: unknown): PaymentEventData {
+  const payment = (raw ?? {}) as {
+    id?: string;
+    attributes?: { status?: string; amount?: number; source?: { type?: string }; payment_intent_id?: string | null };
+  };
+  const attributes = payment.attributes ?? {};
+  return {
+    id: payment.id ?? '',
+    status: attributes.status ?? '',
+    amount: (attributes.amount ?? 0) / 100,
+    methodType: attributes.source?.type ?? '',
+    paymentIntentId: attributes.payment_intent_id ?? '',
+  };
+}
+
+/**
+ * Starts an online payment for one method and returns where to send the buyer: creates a Payment
+ * Intent for `amount`, a Payment Method of `methodType`, and attaches it. GCash/Maya send the buyer
+ * back to `returnUrl` whether they pay or cancel. No billing details are sent: PayMongo then
+ * requires an email, which the shop doesn't collect — the buyer's name goes in `description`.
+ */
+export async function startPayment(params: {
+  /** Pesos. */
+  amount: number;
+  methodType: string;
+  description: string;
+  returnUrl: string;
+  metadata: Record<string, string>;
+}): Promise<PaymentIntent> {
+  const intent = parsePaymentIntent(
+    await request('/payment_intents', {
+      method: 'POST',
+      body: {
+        data: {
+          attributes: {
+            amount: toCentavos(params.amount),
+            currency: 'PHP',
+            payment_method_allowed: [params.methodType],
+            description: params.description,
+            metadata: params.metadata,
+          },
+        },
+      },
+    })
+  );
+  const method = (await request('/payment_methods', {
+    method: 'POST',
+    body: { data: { attributes: { type: params.methodType } } },
+  })) as { id?: string };
+  if (!intent.id || !method.id) throw new PayMongoError('PayMongo returned no payment intent or method id');
+
+  const attached = parsePaymentIntent(
+    await request(`/payment_intents/${encodeURIComponent(intent.id)}/attach`, {
+      method: 'POST',
+      body: { data: { attributes: { payment_method: method.id, return_url: params.returnUrl } } },
+    })
+  );
+  if (!attached.redirectUrl && attached.status !== 'succeeded') {
+    throw new PayMongoError(`PayMongo gave no redirect for ${params.methodType} (status ${attached.status})`);
+  }
+  return attached;
+}
+
+export async function retrievePaymentIntent(id: string): Promise<PaymentIntent> {
+  return parsePaymentIntent(await request(`/payment_intents/${encodeURIComponent(id)}`, { method: 'GET' }));
 }
 
 /**
