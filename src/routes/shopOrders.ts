@@ -13,7 +13,7 @@ import { isShopVisible } from '../types/shop.js';
 import { createCheckoutSession } from '../utils/paymongo.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
-import { computeLineTotal, findPricingEntry, isAreaPriced } from '../utils/shopPricing.js';
+import { computeLineTotal, findPricingEntry, isAreaPriced, withConvenienceFee } from '../utils/shopPricing.js';
 import { isUuid } from '../utils/uuid.js';
 
 // Public checkout for the online shop. Every price is re-resolved from the database — the client's
@@ -71,19 +71,50 @@ const optionalNumber = (value: unknown) => (typeof value === 'number' && Number.
 
 const roundToCentavo = (amount: number) => Math.round(amount * 100) / 100;
 
+/** "2.5" for 2.50, "2.75" for 2.75, "3" for 3.00. */
+const formatPercent = (percent: number) => String(Number(percent.toFixed(2)));
+
+/** Order note for the convenience fee — order notes are capped at 20 characters. */
+function convenienceFeeNote(percent: number): string {
+  const full = `Convenience fee ${formatPercent(percent)}%`;
+  return full.length <= 20 ? full : `Conv. fee ${formatPercent(percent)}%`;
+}
+
 const REGION_LABELS = { luzon: 'Luzon', visayas: 'Visayas', mindanao: 'Mindanao' } as const;
 
 // Thumbnail for the shipping row on PayMongo's page, so it doesn't look like a product. Uploaded by
 // hand to each environment's public product-images bucket (dev and prod are separate projects).
 const SHIPPING_IMAGE_URL = `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/product-images/static/shipping.png`;
 
-/** Second line under a product on PayMongo's page, e.g. "Size: A4 · Matte · 2 × 3 ft". */
-function lineDescription(item: OrderItem): string | undefined {
+/** Second line under a product on PayMongo's page, e.g. "Size: A4 · Matte · 2 × 3 ft". The package
+ *  name is skipped when it just repeats a chosen option (price entries are often named after the
+ *  option value they apply to, e.g. a "Red" entry for Color: Red). */
+export function lineDescription(item: OrderItem): string | undefined {
   const parts = item.selectedOptions.map((option) => `${option.optionName}: ${option.value}`);
   const { width, height, packageName } = item.pricing;
-  if (packageName) parts.push(packageName);
+  const chosenValues = new Set(item.selectedOptions.map((option) => option.value.trim().toLowerCase()));
+  if (packageName && !chosenValues.has(packageName.trim().toLowerCase())) parts.push(packageName);
   if (width && height) parts.push(`${width} × ${height} ft`);
   return parts.length > 0 ? parts.join(' · ').slice(0, 255) : undefined;
+}
+
+/**
+ * Name/amount/quantity for one product line on PayMongo's page. Sends the real quantity with the
+ * per-piece price when the line total splits into whole centavos per piece (always for fixed and
+ * package prices: 5 × ₱55). Size-priced lines can have a fractional per-piece price, and PayMongo
+ * only takes whole centavos per unit — those go as one unit for the whole line, with "×qty" in the
+ * name, so the amounts still add up to the order total exactly.
+ */
+export function paymongoLineAmounts(
+  productName: string,
+  quantity: number,
+  lineTotal: number
+): { name: string; amount: number; quantity: number } {
+  const lineCentavos = Math.round(lineTotal * 100);
+  if (quantity > 1 && lineCentavos % quantity === 0) {
+    return { name: productName, amount: lineCentavos / quantity / 100, quantity };
+  }
+  return { name: `${productName}${quantity > 1 ? ` ×${quantity}` : ''}`, amount: lineTotal, quantity: 1 };
 }
 
 /** A cart line the shop must fix before ordering (removed/changed product or price). */
@@ -96,8 +127,22 @@ class LineConflict extends Error {
   }
 }
 
-/** Resolves one cart line; also records the product's main photo in `images` for the payment page. */
-async function resolveLine(raw: LineInput, index: number, images: Map<string, string>): Promise<OrderItemInput> {
+/** Per-request context for resolving cart lines. */
+interface LineContext {
+  convenienceFeePercent: number;
+  /** Product id → main photo URL, for the payment page. */
+  images: Map<string, string>;
+  /** Line index → the line total the shop showed (convenience fee baked into the unit price). */
+  shopLineTotals: number[];
+}
+
+/**
+ * Resolves one cart line. The order item keeps the product's original price; what the shop showed
+ * (fee baked in) is recorded in `ctx.shopLineTotals` so the difference can be saved as the order's
+ * additional fees.
+ */
+async function resolveLine(raw: LineInput, index: number, ctx: LineContext): Promise<OrderItemInput> {
+  const images = ctx.images;
   const productId = typeof raw.productId === 'string' && isUuid(raw.productId) ? raw.productId : null;
   const product = productId ? await getProduct(productId) : undefined;
   if (!product || !isShopVisible(product)) throw new LineConflict(index, 'This item is no longer available.');
@@ -139,17 +184,21 @@ async function resolveLine(raw: LineInput, index: number, images: Map<string, st
 
   // "Price on request" product: staff quote it, same as a manual line in the portal.
   if (product.pricing.length === 0) {
+    ctx.shopLineTotals[index] = 0;
     return { ...base, pricing: { pricingType: 'Manual', pricingEntryId: '', unitPrice: 0, unit: '' }, lineTotal: 0 };
   }
+
+  const shopPrice = (entry: { price: number }) => withConvenienceFee(entry.price, ctx.convenienceFeePercent);
 
   const entry = findPricingEntry(product, selectedById, {
     pricingEntryId: optionalString(raw.pricingEntryId),
     pricingType: optionalString(raw.pricingType),
     packageName: optionalString(raw.packageName),
     unitPrice: optionalNumber(raw.unitPrice),
-  });
+  }, shopPrice);
+  // The cart holds the price the shop showed (fee included).
   const clientPrice = optionalNumber(raw.unitPrice);
-  if (!entry || (clientPrice !== undefined && clientPrice !== entry.price)) {
+  if (!entry || (clientPrice !== undefined && clientPrice !== shopPrice(entry))) {
     throw new LineConflict(index, `The price of ${product.name} has changed. Please add it to your cart again.`);
   }
 
@@ -176,6 +225,7 @@ async function resolveLine(raw: LineInput, index: number, images: Map<string, st
   // Whole centavos: size-priced lines can come out fractional (1.15 × 2.30 ft × ₱15 = ₱39.675), and
   // PayMongo charges whole centavos — rounding here keeps the order, the payment page and the amount
   // paid in agreement.
+  ctx.shopLineTotals[index] = roundToCentavo(computeLineTotal({ ...pricing, unitPrice: shopPrice(entry) }, quantity));
   return { ...base, pricing, lineTotal: roundToCentavo(computeLineTotal(pricing, quantity)) };
 }
 
@@ -217,11 +267,13 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       return;
     }
 
+    const { shippingRates, convenienceFeePercent } = await getSettings();
+    const lineContext: LineContext = { convenienceFeePercent, images: new Map(), shopLineTotals: [] };
+    const productImages = lineContext.images;
     let items: OrderItemInput[];
-    const productImages = new Map<string, string>();
     try {
       items = await Promise.all(
-        (body.items as LineInput[]).map((line, index) => resolveLine(line ?? {}, index, productImages))
+        (body.items as LineInput[]).map((line, index) => resolveLine(line ?? {}, index, lineContext))
       );
     } catch (err) {
       if (err instanceof LineConflict) {
@@ -231,10 +283,14 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       throw err;
     }
 
-    const { shippingRates } = await getSettings();
     const shippingFee = shippingRates[region!];
-    const subtotal = items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0);
-    const total = roundToCentavo(subtotal + shippingFee);
+    const subtotal = roundToCentavo(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0));
+    // The convenience fee is baked into the prices the shop showed; the order keeps original item
+    // prices and saves the difference as its additional fees (with a note), so the total is exactly
+    // what the buyer saw.
+    const shopSubtotal = roundToCentavo(lineContext.shopLineTotals.reduce((sum, amount) => sum + amount, 0));
+    const convenienceFee = roundToCentavo(Math.max(shopSubtotal - subtotal, 0));
+    const total = roundToCentavo(subtotal + convenienceFee + shippingFee);
     // One line for the single address column, e.g. "12 Rizal St, Brgy. San Isidro, Quezon City, Metro Manila 1100".
     const barangayLabel = /^(brgy\.?|barangay)\s/i.test(barangay!) ? barangay : `Brgy. ${barangay}`;
     const address = `${street}, ${barangayLabel}, ${city}, ${province}${zip ? ` ${zip}` : ''}`.slice(0, 250);
@@ -246,7 +302,8 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       subtotal,
       discount: 0,
       total,
-      notes: '',
+      additionalFees: convenienceFee,
+      notes: convenienceFee > 0 ? convenienceFeeNote(convenienceFeePercent) : '',
       channel: SHOP_ORDER_CHANNEL,
       shippingAddress: { name: name!, phone, address, fee: shippingFee },
       payment: { status: 'unpaid', method: null, downPayment: 0, balance: total },
@@ -268,19 +325,18 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     }
     const order = buildOrder(orderInput, null);
     const checkoutId = randomUUID();
-    await createShopCheckout(checkoutId, toRpcPayload(order), total);
+    await createShopCheckout(checkoutId, toRpcPayload(order), order.total);
     let session;
     try {
       session = await createCheckoutSession({
         lineItems: [
-          ...order.items.map((item) => {
+          ...order.items.map((item, index) => {
             const imageUrl = productImages.get(item.productId);
             return {
-              name: `${item.productName}${item.quantity > 1 ? ` ×${item.quantity}` : ''}`,
+              // What the shop showed for this line (convenience fee included).
+              ...paymongoLineAmounts(item.productName, item.quantity, lineContext.shopLineTotals[index]),
               description: lineDescription(item),
               images: imageUrl ? [imageUrl] : undefined,
-              amount: item.lineTotal,
-              quantity: 1,
             };
           }),
           // PayMongo won't take a ₱0 line, so free shipping simply has no row.
@@ -296,7 +352,7 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
               ]
             : []),
         ],
-        total,
+        total: order.total,
         referenceNumber: checkoutId,
         description: 'DG Prints online order',
         successUrl: `${SHOP_URL}/checkout/return?id=${checkoutId}`,

@@ -10,7 +10,11 @@ export interface AppSettings {
   shippingRates: ShippingRates;
   /** Messenger link for the online shop's "Message us on Facebook" button; '' = not configured. */
   messengerUrl: string;
+  /** Online shop convenience fee (% of items + shipping) added when the buyer pays through PayMongo; 0 = off. */
+  convenienceFeePercent: number;
   updatedAt: string;
 }
 
-export type AppSettingsInput = Partial<Pick<AppSettings, 'shippingFee' | 'shippingRates' | 'messengerUrl'>>;
+export type AppSettingsInput = Partial<
+  Pick<AppSettings, 'shippingFee' | 'shippingRates' | 'messengerUrl' | 'convenienceFeePercent'>
+>;

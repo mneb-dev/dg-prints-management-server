@@ -89,7 +89,12 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   when registering that environment's webhook), `PAYMONGO_PAYMENT_METHODS` (default `gcash`; add `paymaya` etc. once enabled), `SHOP_URL`. Migration
   `20261002090000_add_shop_checkouts.sql` must be applied before deploying this code. The PayMongo shipping
   row's thumbnail is `product-images/static/shipping.png` in each environment's Storage, uploaded by hand
-  (not part of any migration) — upload it to prod too before go-live.
+  (not part of any migration) — upload it to prod too before go-live. **Convenience fee**:
+  `app_settings.convenience_fee_percent` (0 = off, migration `20261003090000_add_convenience_fee.sql`) is baked
+  into every price the shop API returns (`toShopProduct` → `withConvenienceFee`: nearest whole peso, halves up,
+  never below the original). Checkout compares cart prices against those marked-up prices, saves order items at
+  their original prices and stores the difference as `additional_fees` with a "Convenience fee 2.5%" note, so the
+  order total equals what the buyer saw. Shipping and made-to-order products (Messenger-only) aren't marked up.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.

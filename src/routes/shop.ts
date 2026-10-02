@@ -31,7 +31,8 @@ router.get('/products', async (req, res, next) => {
       sortBy: parseSortBy(req.query.sortBy, SHOP_SORT_KEYS, 'name'),
       sortDir: req.query.sortDir === undefined ? 'asc' : parseSortDir(req.query.sortDir),
     });
-    res.json({ ...result, items: result.items.map(toShopProduct) });
+    const { convenienceFeePercent } = await getSettings();
+    res.json({ ...result, items: result.items.map((product) => toShopProduct(product, convenienceFeePercent)) });
   } catch (err) {
     next(err);
   }
@@ -44,7 +45,8 @@ router.get('/products/:id', async (req, res, next) => {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    res.json(toShopProduct(product));
+    const { convenienceFeePercent } = await getSettings();
+    res.json(toShopProduct(product, convenienceFeePercent));
   } catch (err) {
     next(err);
   }

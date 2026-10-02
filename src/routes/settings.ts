@@ -28,6 +28,18 @@ function validateMessengerUrl(value: unknown): string | null {
   }
 }
 
+export const MAX_CONVENIENCE_FEE_PERCENT = 20;
+
+function validateConvenienceFeePercent(value: unknown): string | null {
+  const valid =
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= MAX_CONVENIENCE_FEE_PERCENT &&
+    Math.round(value * 100) === value * 100;
+  return valid ? null : `"convenienceFeePercent" must be a number from 0 to ${MAX_CONVENIENCE_FEE_PERCENT} with at most 2 decimals`;
+}
+
 router.get('/', async (_req, res, next) => {
   try {
     const settings = await getSettings();
@@ -77,8 +89,18 @@ router.put('/', requireSuperadminOrPermission('manage_settings'), async (req, re
       // Store Page links as m.me links so the shop's button opens a chat.
       input.messengerUrl = toMessengerUrl(messengerUrl);
     }
+    if (req.body?.convenienceFeePercent !== undefined) {
+      const error = validateConvenienceFeePercent(req.body.convenienceFeePercent);
+      if (error) {
+        res.status(400).json({ error });
+        return;
+      }
+      input.convenienceFeePercent = req.body.convenienceFeePercent;
+    }
     if (Object.keys(input).length === 0) {
-      res.status(400).json({ error: 'Provide "shippingFee", "shippingRates" and/or "messengerUrl"' });
+      res
+        .status(400)
+        .json({ error: 'Provide "shippingFee", "shippingRates", "messengerUrl" and/or "convenienceFeePercent"' });
       return;
     }
 
