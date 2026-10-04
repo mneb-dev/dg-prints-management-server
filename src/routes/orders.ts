@@ -14,6 +14,7 @@ import { getProduct } from '../data/productStore.js';
 import { getUser } from '../data/userStore.js';
 import { CUSTOMER_RANKING_WINDOW_DAYS } from '../config/env.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { NOTES_MAX_LENGTH } from '../utils/limits.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { parseLimit, parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
@@ -50,8 +51,8 @@ async function validateActiveProducts(items: unknown): Promise<string | null> {
 
 function validateOrderNotes(notes: unknown): string | null {
   if (notes === undefined || notes === null) return null;
-  if (typeof notes !== 'string' || notes.length > 20) {
-    return '"notes" must be a string of at most 20 characters';
+  if (typeof notes !== 'string' || notes.length > NOTES_MAX_LENGTH) {
+    return `"notes" must be a string of at most ${NOTES_MAX_LENGTH} characters`;
   }
   return null;
 }
@@ -157,8 +158,8 @@ function validateItemNotes(items: unknown): string | null {
   if (!Array.isArray(items)) return null;
   for (const item of items) {
     const notes = (item as { notes?: unknown } | null)?.notes;
-    if (notes !== undefined && (typeof notes !== 'string' || notes.length > 60)) {
-      return '"notes" must be a string of at most 60 characters';
+    if (notes !== undefined && (typeof notes !== 'string' || notes.length > NOTES_MAX_LENGTH)) {
+      return `Item "notes" must be a string of at most ${NOTES_MAX_LENGTH} characters`;
     }
   }
   return null;
