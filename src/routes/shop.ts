@@ -71,9 +71,9 @@ router.get('/categories', async (_req, res, next) => {
 
 router.get('/settings', async (_req, res, next) => {
   try {
-    const { messengerUrl } = await getSettings();
+    const { messengerUrl, convenienceFeePercent } = await getSettings();
     // Also converted on read, for links saved before conversion existed.
-    const settings: ShopSettings = { messengerUrl: toMessengerUrl(messengerUrl) };
+    const settings: ShopSettings = { messengerUrl: toMessengerUrl(messengerUrl), convenienceFeePercent };
     res.json(settings);
   } catch (err) {
     next(err);
