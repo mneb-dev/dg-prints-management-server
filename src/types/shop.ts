@@ -48,4 +48,7 @@ export function isShopVisible(product: Product): boolean {
 /** Public storefront settings — only what the shop needs. */
 export interface ShopSettings {
   messengerUrl: string;
+  /** The online-payment processing fee baked into shop prices (0 = off) — disclosed on the shop's
+   * Terms page. */
+  convenienceFeePercent: number;
 }
