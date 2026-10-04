@@ -186,10 +186,28 @@ function mapRowToOrder(row: OrderRow): Order {
       balance: Number(row.payment_balance),
     },
     orRequest: mapOrRequestRow(row.or_request),
+    paidOnline: false, // set by markPaidOnline
   };
 }
 
-function toRpcPayload(order: Order) {
+/** Sets `paidOnline` on orders created by a paid PayMongo checkout (see shop_checkouts). */
+async function markPaidOnline(orders: Order[]): Promise<Order[]> {
+  if (orders.length === 0) return orders;
+  const { data, error } = await supabase
+    .from('shop_checkouts')
+    .select('order_id')
+    .eq('status', 'paid')
+    .in(
+      'order_id',
+      orders.map((order) => order.id)
+    );
+  if (error) throw new Error(error.message);
+  const paid = new Set((data ?? []).map((row) => row.order_id as string));
+  return orders.map((order) => ({ ...order, paidOnline: paid.has(order.id) }));
+}
+
+/** Snake_case payload for the `upsert_order` RPC (also frozen as-is by shop checkouts awaiting payment). */
+export function toRpcPayload(order: Order) {
   return {
     id: order.id,
     customer_name: order.customerName,
@@ -319,7 +337,7 @@ export async function listOrders(params: ListOrdersParams): Promise<ListOrdersRe
   if (error) throw new Error(error.message);
   const payload = data as unknown as { rows: OrderRow[]; total: number };
   return {
-    items: payload.rows.map(mapRowToOrder),
+    items: await markPaidOnline(payload.rows.map(mapRowToOrder)),
     total: payload.total,
     page,
     pageSize,
@@ -394,11 +412,12 @@ export async function getOrder(id: string): Promise<Order | undefined> {
   if (error) throw new Error(error.message);
   if (!data) return undefined;
 
-  return mapRowToOrder(data as unknown as OrderRow);
+  const [order] = await markPaidOnline([mapRowToOrder(data as unknown as OrderRow)]);
+  return order;
 }
 
-/** `actorId` is the staff user creating it; null for orders placed through the online shop. */
-export async function createOrder(input: OrderInput, actorId: string | null): Promise<Order> {
+/** A new, not-yet-saved order. `actorId` is the staff user creating it; null for online shop orders. */
+export function buildOrder(input: OrderInput, actorId: string | null): Order {
   const now = new Date().toISOString();
   const payment: Payment = {
     status: input.payment?.status ?? 'unpaid',
@@ -407,7 +426,7 @@ export async function createOrder(input: OrderInput, actorId: string | null): Pr
     balance: input.payment?.balance ?? 0,
   };
 
-  const order: Order = {
+  return {
     id: randomUUID(),
     orderNumber: '',
     customerName: input.customerName ?? '',
@@ -433,8 +452,13 @@ export async function createOrder(input: OrderInput, actorId: string | null): Pr
     shippingAddress: input.shippingAddress ?? null,
     payment,
     orRequest: null,
+    paidOnline: false,
   };
+}
 
+/** `actorId` is the staff user creating it; null for orders placed through the online shop. */
+export async function createOrder(input: OrderInput, actorId: string | null): Promise<Order> {
+  const order = buildOrder(input, actorId);
   const { error } = await supabase.rpc('upsert_order', { payload: toRpcPayload(order) });
   if (error) throw new Error(error.message);
 

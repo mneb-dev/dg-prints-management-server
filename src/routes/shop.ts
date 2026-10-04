@@ -4,6 +4,7 @@ import { getProduct, listProducts } from '../data/productStore.js';
 import { getSettings } from '../data/settingsStore.js';
 import { isShopVisible, toShopProduct, type ShopSettings } from '../types/shop.js';
 import { toMessengerUrl } from '../utils/messengerUrl.js';
+import { toShopPaymentMethods } from '../utils/paymongo.js';
 import { PROVINCES } from '../utils/phProvinces.js';
 import { isUuid } from '../utils/uuid.js';
 import { parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
@@ -31,7 +32,8 @@ router.get('/products', async (req, res, next) => {
       sortBy: parseSortBy(req.query.sortBy, SHOP_SORT_KEYS, 'name'),
       sortDir: req.query.sortDir === undefined ? 'asc' : parseSortDir(req.query.sortDir),
     });
-    res.json({ ...result, items: result.items.map(toShopProduct) });
+    const { convenienceFeePercent } = await getSettings();
+    res.json({ ...result, items: result.items.map((product) => toShopProduct(product, convenienceFeePercent)) });
   } catch (err) {
     next(err);
   }
@@ -44,7 +46,8 @@ router.get('/products/:id', async (req, res, next) => {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    res.json(toShopProduct(product));
+    const { convenienceFeePercent } = await getSettings();
+    res.json(toShopProduct(product, convenienceFeePercent));
   } catch (err) {
     next(err);
   }
@@ -72,6 +75,17 @@ router.get('/settings', async (_req, res, next) => {
     // Also converted on read, for links saved before conversion existed.
     const settings: ShopSettings = { messengerUrl: toMessengerUrl(messengerUrl) };
     res.json(settings);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The online payment options the checkout lists, in order (the first is preselected). Managed in
+// portal Settings -> Online shop, so adding Maya is a settings change.
+router.get('/payment-methods', async (_req, res, next) => {
+  try {
+    const { shopPaymentMethods } = await getSettings();
+    res.json(toShopPaymentMethods(shopPaymentMethods));
   } catch (err) {
     next(err);
   }

@@ -99,6 +99,8 @@ export interface Order {
   shippingAddress: ShippingAddress | null;
   payment: Payment;
   orRequest: OrRequest | null;
+  /** Paid through the online shop's PayMongo checkout — its payment can then only be marked refunded. */
+  paidOnline: boolean;
 }
 
 export type OrderItemInput = Partial<Omit<OrderItem, 'pricing'>> & {

@@ -360,6 +360,34 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
   }
 });
 
+const PAID_ONLINE_LOCKED =
+  'This order was paid online through PayMongo — its payment can only be marked Refunded.';
+
+/**
+ * Orders paid through the online shop's PayMongo checkout keep the payment PayMongo recorded:
+ * staff may only mark them refunded (after refunding in PayMongo), and can't move them to another
+ * channel. Sending the payment/channel back unchanged (the edit form does) is fine.
+ */
+async function validatePaidOnlineLock(id: string, body: Record<string, unknown>): Promise<string | null> {
+  if (body.payment === undefined && body.channel === undefined) return null;
+  const existing = await getOrder(id);
+  if (!existing?.paidOnline) return null;
+
+  if (typeof body.channel === 'string' && body.channel !== existing.channel) return PAID_ONLINE_LOCKED;
+
+  const payment = body.payment as Partial<Record<'status' | 'method' | 'downPayment' | 'balance', unknown>> | undefined;
+  if (!payment) return null;
+  const current = existing.payment;
+  const unchanged =
+    (payment.status ?? current.status) === current.status &&
+    (payment.method ?? current.method) === current.method &&
+    Number(payment.downPayment ?? current.downPayment) === current.downPayment &&
+    Number(payment.balance ?? current.balance) === current.balance;
+  if (unchanged) return null;
+  if (payment.status === 'refunded' && current.status !== 'refunded') return null;
+  return PAID_ONLINE_LOCKED;
+}
+
 router.put('/:id', requirePermission('manage_orders'), async (req, res, next) => {
   try {
     const metadataError = await validateAdminMetadata(
@@ -408,6 +436,11 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const itemNotesError = validateItemNotes(req.body?.items);
     if (itemNotesError) {
       res.status(400).json({ error: itemNotesError });
+      return;
+    }
+    const lockError = await validatePaidOnlineLock(req.params.id, (req.body ?? {}) as Record<string, unknown>);
+    if (lockError) {
+      res.status(409).json({ error: lockError });
       return;
     }
     const updated = await updateOrder(req.params.id, req.body ?? {}, req.user!.sub);

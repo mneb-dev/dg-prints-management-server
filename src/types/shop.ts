@@ -1,3 +1,4 @@
+import { withConvenienceFee } from '../utils/shopPricing.js';
 import type { Product, ProductImage, ProductOption, ProductPricing } from './product.js';
 
 /** Public storefront view of a product — drops internal fields (status, showInShop,
@@ -19,14 +20,18 @@ export interface ShopProduct {
   createdAt: string;
 }
 
-export function toShopProduct(product: Product): ShopProduct {
+/** `convenienceFeePercent` is baked into every price (see `withConvenienceFee`), so the shop's
+ *  cards, product page, cart and checkout all show what the buyer will pay. Made-to-order products
+ *  are ordered through Messenger, never paid online, so they keep their original prices. */
+export function toShopProduct(product: Product, convenienceFeePercent: number): ShopProduct {
+  const feePercent = product.madeToOrder ? 0 : convenienceFeePercent;
   return {
     id: product.id,
     name: product.name,
     category: product.category,
     description: product.description,
     options: product.options,
-    pricing: product.pricing,
+    pricing: product.pricing.map((entry) => ({ ...entry, price: withConvenienceFee(entry.price, feePercent) })),
     images: product.images,
     madeToOrder: product.madeToOrder,
     inStock: product.status === 'Active',

@@ -27,7 +27,9 @@ export function appliesToSelection(entry: ProductPricing, selected: Map<string, 
 export function findPricingEntry(
   product: Product,
   selected: Map<string, string>,
-  line: { pricingEntryId?: string; pricingType?: string; packageName?: string; unitPrice?: number }
+  line: { pricingEntryId?: string; pricingType?: string; packageName?: string; unitPrice?: number },
+  /** The price the shop showed for an entry (with the convenience fee baked in). */
+  priceOf: (entry: ProductPricing) => number = (entry) => entry.price
 ): ProductPricing | undefined {
   const candidates = product.pricing.filter((entry) => appliesToSelection(entry, selected));
   if (line.pricingEntryId) return candidates.find((entry) => entry.id === line.pricingEntryId);
@@ -35,6 +37,17 @@ export function findPricingEntry(
     (entry) =>
       entry.pricingType === line.pricingType &&
       (entry.packageName ?? '') === (line.packageName ?? '') &&
-      entry.price === line.unitPrice
+      priceOf(entry) === line.unitPrice
   ) ?? (candidates.length === 1 ? candidates[0] : undefined);
+}
+
+/**
+ * The price the online shop shows: the convenience fee (covering PayMongo's cut) baked in, rounded
+ * to the nearest whole peso, halves up — ₱100 at 2.5% → ₱102.50 → ₱103. Goes through whole
+ * centavos first so ₱102.50 can't round down as 102.4999…. Never below the original price (a
+ * ₱10.20 item at 1% would otherwise round to ₱10). 0% leaves the price untouched.
+ */
+export function withConvenienceFee(price: number, percent: number): number {
+  if (!(percent > 0)) return price;
+  return Math.max(price, Math.round(Math.round(price * (100 + percent)) / 100));
 }

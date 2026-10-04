@@ -1,19 +1,27 @@
+import { randomUUID } from 'node:crypto';
+
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 
-import { createOrder } from '../data/orderStore.js';
+import { PAYMONGO_SECRET_KEY, SHOP_URL } from '../config/env.js';
+import { buildOrder, createOrder, toRpcPayload } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
 import { getSettings } from '../data/settingsStore.js';
-import type { OrderItemInput } from '../types/order.js';
+import { attachPaymentIntent, createShopCheckout, expireShopCheckout } from '../data/shopCheckoutStore.js';
+import type { OrderInput, OrderItemInput } from '../types/order.js';
 import { isShopVisible } from '../types/shop.js';
+import { startPayment, toShopPaymentMethods } from '../utils/paymongo.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
-import { computeLineTotal, findPricingEntry, isAreaPriced } from '../utils/shopPricing.js';
+import { computeLineTotal, findPricingEntry, isAreaPriced, withConvenienceFee } from '../utils/shopPricing.js';
 import { isUuid } from '../utils/uuid.js';
 
-// Public checkout for the online shop: turns a cart into a normal pending/unpaid order that staff
-// confirm in the portal. Every price is re-resolved from the database — the client's prices are
-// only compared against, never trusted.
+// Public checkout for the online shop. Every price is re-resolved from the database — the client's
+// prices are only compared against, never trusted. A fully-priced cart becomes a pending shop
+// checkout plus a PayMongo Payment Intent for the method the buyer picked, and the buyer goes straight
+// to GCash/Maya (the order is created, paid, once the payment lands —
+// see shopCheckouts.ts / paymongoWebhook.ts); a cart with a price-on-request line becomes a normal
+// pending/unpaid order right away for staff to quote.
 const router = Router();
 
 export const SHOP_ORDER_CHANNEL = 'Online shop';
@@ -37,6 +45,8 @@ type Body = {
   customer?: { name?: unknown; phone?: unknown };
   address?: { street?: unknown; barangay?: unknown; city?: unknown; province?: unknown; zip?: unknown };
   items?: unknown;
+  /** PayMongo payment method type the buyer picked, e.g. "gcash"; defaults to the first offered. */
+  paymentMethod?: unknown;
   website?: unknown;
 };
 
@@ -62,6 +72,17 @@ function text(value: unknown, max: number): string | null {
 const optionalString = (value: unknown) => (typeof value === 'string' ? value : undefined);
 const optionalNumber = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
+const roundToCentavo = (amount: number) => Math.round(amount * 100) / 100;
+
+/** "2.5" for 2.50, "2.75" for 2.75, "3" for 3.00. */
+const formatPercent = (percent: number) => String(Number(percent.toFixed(2)));
+
+/** Order note for the convenience fee — order notes are capped at 20 characters. */
+function convenienceFeeNote(percent: number): string {
+  const full = `Convenience fee ${formatPercent(percent)}%`;
+  return full.length <= 20 ? full : `Conv. fee ${formatPercent(percent)}%`;
+}
+
 /** A cart line the shop must fix before ordering (removed/changed product or price). */
 class LineConflict extends Error {
   constructor(
@@ -72,7 +93,19 @@ class LineConflict extends Error {
   }
 }
 
-async function resolveLine(raw: LineInput, index: number): Promise<OrderItemInput> {
+/** Per-request context for resolving cart lines. */
+interface LineContext {
+  convenienceFeePercent: number;
+  /** Line index → the line total the shop showed (convenience fee baked into the unit price). */
+  shopLineTotals: number[];
+}
+
+/**
+ * Resolves one cart line. The order item keeps the product's original price; what the shop showed
+ * (fee baked in) is recorded in `ctx.shopLineTotals` so the difference can be saved as the order's
+ * additional fees.
+ */
+async function resolveLine(raw: LineInput, index: number, ctx: LineContext): Promise<OrderItemInput> {
   const productId = typeof raw.productId === 'string' && isUuid(raw.productId) ? raw.productId : null;
   const product = productId ? await getProduct(productId) : undefined;
   if (!product || !isShopVisible(product)) throw new LineConflict(index, 'This item is no longer available.');
@@ -113,17 +146,21 @@ async function resolveLine(raw: LineInput, index: number): Promise<OrderItemInpu
 
   // "Price on request" product: staff quote it, same as a manual line in the portal.
   if (product.pricing.length === 0) {
+    ctx.shopLineTotals[index] = 0;
     return { ...base, pricing: { pricingType: 'Manual', pricingEntryId: '', unitPrice: 0, unit: '' }, lineTotal: 0 };
   }
+
+  const shopPrice = (entry: { price: number }) => withConvenienceFee(entry.price, ctx.convenienceFeePercent);
 
   const entry = findPricingEntry(product, selectedById, {
     pricingEntryId: optionalString(raw.pricingEntryId),
     pricingType: optionalString(raw.pricingType),
     packageName: optionalString(raw.packageName),
     unitPrice: optionalNumber(raw.unitPrice),
-  });
+  }, shopPrice);
+  // The cart holds the price the shop showed (fee included).
   const clientPrice = optionalNumber(raw.unitPrice);
-  if (!entry || (clientPrice !== undefined && clientPrice !== entry.price)) {
+  if (!entry || (clientPrice !== undefined && clientPrice !== shopPrice(entry))) {
     throw new LineConflict(index, `The price of ${product.name} has changed. Please add it to your cart again.`);
   }
 
@@ -147,7 +184,11 @@ async function resolveLine(raw: LineInput, index: number): Promise<OrderItemInpu
     packageName: entry.packageName,
     ...(width && height ? { size: { width, height, unit: 'ft' } } : {}),
   };
-  return { ...base, pricing, lineTotal: computeLineTotal(pricing, quantity) };
+  // Whole centavos: size-priced lines can come out fractional (1.15 × 2.30 ft × ₱15 = ₱39.675), and
+  // PayMongo charges whole centavos — rounding here keeps the order, the payment page and the amount
+  // paid in agreement.
+  ctx.shopLineTotals[index] = roundToCentavo(computeLineTotal({ ...pricing, unitPrice: shopPrice(entry) }, quantity));
+  return { ...base, pricing, lineTotal: roundToCentavo(computeLineTotal(pricing, quantity)) };
 }
 
 router.post('/', placeOrderLimiter, async (req, res, next) => {
@@ -188,9 +229,21 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       return;
     }
 
+
+    const { shippingRates, convenienceFeePercent, shopPaymentMethods } = await getSettings();
+
+    // Only matters if the cart is paid online; the first offered method (GCash) is the default.
+    const offeredMethods = toShopPaymentMethods(shopPaymentMethods);
+    const paymentMethod =
+      body.paymentMethod === undefined || body.paymentMethod === null || body.paymentMethod === ''
+        ? offeredMethods[0]
+        : offeredMethods.find((method) => method.type === body.paymentMethod);
+    const lineContext: LineContext = { convenienceFeePercent, shopLineTotals: [] };
     let items: OrderItemInput[];
     try {
-      items = await Promise.all((body.items as LineInput[]).map((line, index) => resolveLine(line ?? {}, index)));
+      items = await Promise.all(
+        (body.items as LineInput[]).map((line, index) => resolveLine(line ?? {}, index, lineContext))
+      );
     } catch (err) {
       if (err instanceof LineConflict) {
         res.status(409).json({ error: err.message, itemIndex: err.itemIndex });
@@ -199,31 +252,73 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       throw err;
     }
 
-    const { shippingRates } = await getSettings();
     const shippingFee = shippingRates[region!];
-    const subtotal = items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0);
-    const total = subtotal + shippingFee;
+    const subtotal = roundToCentavo(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0));
+    // The convenience fee is baked into the prices the shop showed; the order keeps original item
+    // prices and saves the difference as its additional fees (with a note), so the total is exactly
+    // what the buyer saw.
+    const shopSubtotal = roundToCentavo(lineContext.shopLineTotals.reduce((sum, amount) => sum + amount, 0));
+    const convenienceFee = roundToCentavo(Math.max(shopSubtotal - subtotal, 0));
+    const total = roundToCentavo(subtotal + convenienceFee + shippingFee);
     // One line for the single address column, e.g. "12 Rizal St, Brgy. San Isidro, Quezon City, Metro Manila 1100".
     const barangayLabel = /^(brgy\.?|barangay)\s/i.test(barangay!) ? barangay : `Brgy. ${barangay}`;
     const address = `${street}, ${barangayLabel}, ${city}, ${province}${zip ? ` ${zip}` : ''}`.slice(0, 250);
 
-    const order = await createOrder(
-      {
-        customerName: name!,
-        customerPhone: phone,
-        items,
-        subtotal,
-        discount: 0,
-        total,
-        notes: '',
-        channel: SHOP_ORDER_CHANNEL,
-        shippingAddress: { name: name!, phone, address, fee: shippingFee },
-        payment: { status: 'unpaid', method: null, downPayment: 0, balance: total },
-      },
-      null
-    );
+    const orderInput: OrderInput = {
+      customerName: name!,
+      customerPhone: phone,
+      items,
+      subtotal,
+      discount: 0,
+      total,
+      additionalFees: convenienceFee,
+      notes: convenienceFee > 0 ? convenienceFeeNote(convenienceFeePercent) : '',
+      channel: SHOP_ORDER_CHANNEL,
+      shippingAddress: { name: name!, phone, address, fee: shippingFee },
+      payment: { status: 'unpaid', method: null, downPayment: 0, balance: total },
+    };
 
-    res.status(201).json({ orderNumber: order.orderNumber, total: order.total });
+    // A "price on request" line means the total isn't final, so there's nothing to charge yet:
+    // place the order unpaid and staff quote + collect payment, as before online payments.
+    if (items.some((item) => item.pricing?.pricingType === 'Manual')) {
+      const order = await createOrder(orderInput, null);
+      res.status(201).json({ kind: 'order', orderNumber: order.orderNumber, total: order.total });
+      return;
+    }
+
+    // Otherwise the buyer pays first; the order is only created once PayMongo confirms it.
+    if (!paymentMethod) {
+      res.status(400).json({ error: 'Choose a payment method.' });
+      return;
+    }
+    if (!PAYMONGO_SECRET_KEY || !SHOP_URL) {
+      console.error('Shop checkout: PAYMONGO_SECRET_KEY and SHOP_URL must be set to take online payments.');
+      res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
+      return;
+    }
+    const order = buildOrder(orderInput, null);
+    const checkoutId = randomUUID();
+    await createShopCheckout(checkoutId, toRpcPayload(order), order.total);
+    // Straight to GCash/Maya: a Payment Intent for the method the buyer picked on our checkout.
+    let payment;
+    try {
+      payment = await startPayment({
+        amount: order.total,
+        methodType: paymentMethod.type,
+        // Shown in PayMongo's dashboard and GCash/Maya receipts.
+        description: `DG Prints online order · ${name}`.slice(0, 255),
+        returnUrl: `${SHOP_URL}/checkout/return?id=${checkoutId}`,
+        metadata: { checkoutId },
+      });
+    } catch (err) {
+      console.error(err);
+      await expireShopCheckout(checkoutId);
+      res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
+      return;
+    }
+    await attachPaymentIntent(checkoutId, payment.id, payment.redirectUrl);
+
+    res.status(201).json({ kind: 'payment', checkoutId, checkoutUrl: payment.redirectUrl });
   } catch (err) {
     next(err);
   }
