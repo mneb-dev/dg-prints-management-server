@@ -10,6 +10,7 @@ import { getSettings } from '../data/settingsStore.js';
 import { attachPaymentIntent, createShopCheckout, expireShopCheckout } from '../data/shopCheckoutStore.js';
 import type { OrderInput, OrderItemInput } from '../types/order.js';
 import { isShopVisible } from '../types/shop.js';
+import { NOTES_MAX_LENGTH } from '../utils/limits.js';
 import { startPayment, toShopPaymentMethods } from '../utils/paymongo.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
@@ -27,7 +28,7 @@ const router = Router();
 export const SHOP_ORDER_CHANNEL = 'Online shop';
 const MAX_ITEMS = 50;
 const MAX_QUANTITY = 9999;
-const MAX_ITEM_NOTE = 60; // Same limit the portal enforces on order item notes.
+const MAX_ITEM_NOTE = NOTES_MAX_LENGTH; // Same limit the portal enforces on order item notes.
 const MAX_DIMENSION_FT = 1000;
 
 // Per server instance (Vercel may run several) — enough to stop casual spam, with the honeypot below.
