@@ -30,6 +30,7 @@ const MAX_ITEMS = 50;
 const MAX_QUANTITY = 9999;
 const MAX_ITEM_NOTE = NOTES_MAX_LENGTH; // Same limit the portal enforces on order item notes.
 const MAX_DIMENSION_FT = 1000;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Per server instance (Vercel may run several) — enough to stop casual spam, with the honeypot below.
 const placeOrderLimiter = rateLimit({
@@ -43,7 +44,7 @@ const placeOrderLimiter = rateLimit({
 });
 
 type Body = {
-  customer?: { name?: unknown; phone?: unknown };
+  customer?: { name?: unknown; phone?: unknown; email?: unknown };
   address?: { street?: unknown; barangay?: unknown; city?: unknown; province?: unknown; zip?: unknown };
   items?: unknown;
   /** PayMongo payment method type the buyer picked, e.g. "gcash"; defaults to the first offered. */
@@ -204,6 +205,8 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
 
     const name = text(body.customer?.name, 60);
     const phone = typeof body.customer?.phone === 'string' ? body.customer.phone.trim() : '';
+    // Only needed (and checked) when the cart is paid online — it's passed to PayMongo, not stored.
+    const email = typeof body.customer?.email === 'string' ? body.customer.email.trim() : '';
     const street = text(body.address?.street, 120);
     const barangay = text(body.address?.barangay, 60);
     const city = text(body.address?.city, 60);
@@ -292,6 +295,10 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
       res.status(400).json({ error: 'Choose a payment method.' });
       return;
     }
+    if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
+      res.status(400).json({ error: 'Enter a valid email address for your payment receipt.' });
+      return;
+    }
     if (!PAYMONGO_SECRET_KEY || !SHOP_URL) {
       console.error('Shop checkout: PAYMONGO_SECRET_KEY and SHOP_URL must be set to take online payments.');
       res.status(502).json({ error: 'Online payment is unavailable right now. Please try again in a moment.' });
@@ -310,6 +317,7 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
         description: `DG Prints online order · ${name}`.slice(0, 255),
         returnUrl: `${SHOP_URL}/checkout/return?id=${checkoutId}`,
         metadata: { checkoutId },
+        billing: { name: name!, email, phone },
       });
     } catch (err) {
       console.error(err);
