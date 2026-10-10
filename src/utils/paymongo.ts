@@ -169,9 +169,9 @@ export function parsePaymentEvent(raw: unknown): PaymentEventData {
 
 /**
  * Starts an online payment for one method and returns where to send the buyer: creates a Payment
- * Intent for `amount`, a Payment Method of `methodType`, and attaches it. GCash/Maya send the buyer
- * back to `returnUrl` whether they pay or cancel. No billing details are sent: PayMongo then
- * requires an email, which the shop doesn't collect — the buyer's name goes in `description`.
+ * Intent for `amount`, a Payment Method of `methodType` with the buyer's billing details, and
+ * attaches it. GCash/Maya send the buyer back to `returnUrl` whether they pay or cancel. The billing
+ * name/email/phone show under "Billing details" in PayMongo, and PayMongo emails the receipt there.
  */
 export async function startPayment(params: {
   /** Pesos. */
@@ -180,6 +180,7 @@ export async function startPayment(params: {
   description: string;
   returnUrl: string;
   metadata: Record<string, string>;
+  billing: { name: string; email: string; phone: string };
 }): Promise<PaymentIntent> {
   const intent = parsePaymentIntent(
     await request('/payment_intents', {
@@ -199,7 +200,7 @@ export async function startPayment(params: {
   );
   const method = (await request('/payment_methods', {
     method: 'POST',
-    body: { data: { attributes: { type: params.methodType } } },
+    body: { data: { attributes: { type: params.methodType, billing: params.billing } } },
   })) as { id?: string };
   if (!intent.id || !method.id) throw new PayMongoError('PayMongo returned no payment intent or method id');
 
