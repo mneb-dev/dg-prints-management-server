@@ -105,7 +105,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', requirePermission('manage_products'), async (req, res, next) => {
+router.post('/', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     const nameError = validateName(req.body?.name);
     if (nameError) {
@@ -133,7 +133,7 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
   }
 });
 
-router.put('/:id', requirePermission('manage_products'), async (req, res, next) => {
+router.put('/:id', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     if (req.body?.name !== undefined) {
       const nameError = validateName(req.body.name);
@@ -171,7 +171,7 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
   }
 });
 
-router.delete('/:id', requirePermission('manage_products'), async (req, res, next) => {
+router.delete('/:id', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     const result = await deleteCategory(req.params.id);
     if (!result.deleted) {
