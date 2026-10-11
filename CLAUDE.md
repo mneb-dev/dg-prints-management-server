@@ -59,7 +59,7 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
 - **Product images** live in the public Supabase Storage bucket `product-images` (created by
   `20260926090000_create_product_images.sql`), recorded in `product_images` (lowest `sort_order` = main
   image). They are *not* part of the `upsert_product` payload — they're managed only via
-  `src/routes/productImages.ts` (`/api/products/:id/images`, admin/superadmin only). Upload is
+  `src/routes/productImages.ts` (`/api/products/:id/images`, admin/superadmin, or anyone with `manage_products`). Upload is
   direct-to-storage: `POST /upload-url` returns a signed URL, the portal PUTs the (browser-resized WebP)
   file straight to Storage — keeping files off Vercel's 4.5 MB request body limit — then `POST /` with the
   path registers it. Storage access goes through the `ImageStorage` adapter in `src/config/imageStorage.ts`.

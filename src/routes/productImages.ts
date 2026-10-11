@@ -7,13 +7,13 @@ import {
   ProductImageError,
   reorderProductImages,
 } from '../data/productImageStore.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireRoleOrPermission } from '../middleware/auth.js';
 import { isUuid } from '../utils/uuid.js';
 
-// Mounted at /api/products/:id/images. Only admins and superadmins manage product images.
+// Mounted at /api/products/:id/images. Admins, superadmins and anyone with manage_products manage product images.
 const router = Router({ mergeParams: true });
 
-router.use(requireAuth, requireRole('admin', 'superadmin'));
+router.use(requireAuth, requireRoleOrPermission(['admin', 'superadmin'], 'manage_products'));
 
 router.use((req, res, next) => {
   const { id } = req.params as { id?: string };
