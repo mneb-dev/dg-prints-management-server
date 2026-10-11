@@ -74,7 +74,7 @@ router.get('/', async (_req, res, next) => {
 });
 
 // Registered before "/:id" so "reorder" isn't captured as an id.
-router.put('/reorder', requirePermission('manage_products'), async (req, res, next) => {
+router.put('/reorder', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     const order = req.body?.order;
     if (!Array.isArray(order) || !order.every((id) => typeof id === 'string')) {
@@ -87,7 +87,7 @@ router.put('/reorder', requirePermission('manage_products'), async (req, res, ne
   }
 });
 
-router.post('/', requirePermission('manage_products'), async (req, res, next) => {
+router.post('/', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     const nameError = validateName(req.body?.name);
     if (nameError) {
@@ -125,7 +125,7 @@ router.post('/', requirePermission('manage_products'), async (req, res, next) =>
   }
 });
 
-router.put('/:id', requirePermission('manage_products'), async (req, res, next) => {
+router.put('/:id', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     if (req.body?.name !== undefined) {
       const nameError = validateName(req.body.name);
@@ -176,7 +176,7 @@ router.put('/:id', requirePermission('manage_products'), async (req, res, next) 
   }
 });
 
-router.delete('/:id', requirePermission('manage_products'), async (req, res, next) => {
+router.delete('/:id', requirePermission('manage_categories'), async (req, res, next) => {
   try {
     const result = await deleteOrderStatus(req.params.id);
     if (!result.deleted) {

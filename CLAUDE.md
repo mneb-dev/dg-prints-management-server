@@ -59,11 +59,14 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
 - **Product images** live in the public Supabase Storage bucket `product-images` (created by
   `20260926090000_create_product_images.sql`), recorded in `product_images` (lowest `sort_order` = main
   image). They are *not* part of the `upsert_product` payload — they're managed only via
-  `src/routes/productImages.ts` (`/api/products/:id/images`, admin/superadmin only). Upload is
+  `src/routes/productImages.ts` (`/api/products/:id/images`, admin/superadmin, or anyone with `manage_products`). Upload is
   direct-to-storage: `POST /upload-url` returns a signed URL, the portal PUTs the (browser-resized WebP)
   file straight to Storage — keeping files off Vercel's 4.5 MB request body limit — then `POST /` with the
   path registers it. Storage access goes through the `ImageStorage` adapter in `src/config/imageStorage.ts`.
   `PRODUCT_SELECT` embeds `product_images`, so that migration must be applied before deploying this code.
+- **Categories and order statuses** (`src/routes/categories.ts`, `src/routes/order-statuses.ts`): reads are open to
+  any signed-in user; writes need `manage_categories` (split from `manage_products` by
+  `20261012090000_add_manage_categories_permission.sql`, which must be applied before deploying that change).
 - **Online shop routes** (`src/routes/shop.ts`, public, no auth) force `show_in_shop` + not deleted themselves;
   Inactive products are still listed with `inStock: false` ("Out of stock" in the shop).
   Products also carry `made_to_order` (shop shows "Message us on Facebook" instead of "Add to cart"), and `GET /api/shop/settings` exposes only `app_settings.messenger_url`.

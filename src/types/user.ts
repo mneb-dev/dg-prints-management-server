@@ -3,6 +3,7 @@ export type Role = (typeof ROLES)[number];
 
 export const PERMISSION_KEYS = [
   'manage_products',
+  'manage_categories',
   'manage_orders',
   'manage_users',
   'manage_expenses',
