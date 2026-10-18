@@ -22,7 +22,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-const ORDER_SORT_KEYS = ['order_number', 'customer_name', 'total', 'created_at'] as const;
+const ORDER_SORT_KEYS = ['order_number', 'customer_name', 'total', 'created_at', 'status_updated_at'] as const;
 const MAX_RECENT_LIMIT = 200;
 
 async function validateActiveProducts(items: unknown): Promise<string | null> {
