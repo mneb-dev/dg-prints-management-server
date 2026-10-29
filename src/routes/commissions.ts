@@ -47,10 +47,16 @@ function parseAndValidateDateRange(req: Request, res: Response): { dateFrom: str
   return { dateFrom, dateTo };
 }
 
-/** Shared by /summary and /orders: validates dateFrom/dateTo and forces staff callers to their
- * own layout_by, regardless of what's passed in the query. */
+// Stands in for "no date filter" -- the commission RPCs need concrete bounds (p_date_to + 1 must
+// stay a valid date, hence 9999-12-30).
+const ALL_TIME_RANGE = { dateFrom: '1970-01-01', dateTo: '9999-12-30' };
+
+/** Shared by /summary and /orders: validates dateFrom/dateTo (omitting both means all time, with
+ * no MAX_RANGE_DAYS cap) and forces staff callers to their own layout_by, regardless of what's
+ * passed in the query. */
 function resolveDateRange(req: Request, res: Response): { dateFrom: string; dateTo: string; layoutBy?: string } | null {
-  const range = parseAndValidateDateRange(req, res);
+  const hasNoDates = !queryString(req.query.dateFrom) && !queryString(req.query.dateTo);
+  const range = hasNoDates ? ALL_TIME_RANGE : parseAndValidateDateRange(req, res);
   if (!range) return null;
   const layoutBy = req.user!.role === 'staff' ? req.user!.sub : queryString(req.query.layoutBy) || undefined;
   return { ...range, layoutBy };
@@ -85,10 +91,13 @@ router.get('/summary', async (req, res, next) => {
   }
 });
 
-const RELEASE_FILTERS = ['all', 'released', 'unreleased'] as const;
+// Mutually exclusive buckets (besides 'all'), same as the portal's getCommissionReleaseStatus:
+// released = paid + released, unreleased = paid + not yet released, awaiting_payment = not paid.
+const RELEASE_FILTERS = ['all', 'released', 'unreleased', 'awaiting_payment'] as const;
 
-// Paged in Node rather than in the RPC: the range is capped at MAX_RANGE_DAYS, so the full set is
-// bounded, and it lets pendingReleaseIds cover every page for the portal's "Release all pending".
+// Paged in Node rather than in the RPC: it lets pendingReleaseIds cover every page for the
+// portal's "Release all pending". With no dates this loads every layout order ever -- fine at this
+// shop's volume, but move paging into the RPC if that set grows large.
 router.get('/orders', async (req, res, next) => {
   try {
     const range = resolveDateRange(req, res);
@@ -103,9 +112,9 @@ router.get('/orders', async (req, res, next) => {
 
     const allRows = await listCommissionOrders(range.dateFrom, range.dateTo, range.layoutBy);
     // Same rule as the portal's getCommissionReleaseStatus: only paid orders can be released.
-    const isReleased = (row: (typeof allRows)[number]) => row.paymentStatus === 'paid' && row.releasedAt !== null;
-    const filtered =
-      release === 'all' ? allRows : allRows.filter((row) => (release === 'released') === isReleased(row));
+    const bucketOf = (row: (typeof allRows)[number]) =>
+      row.paymentStatus !== 'paid' ? 'awaiting_payment' : row.releasedAt !== null ? 'released' : 'unreleased';
+    const filtered = release === 'all' ? allRows : allRows.filter((row) => bucketOf(row) === release);
     const pendingReleaseIds = allRows
       .filter((row) => row.paymentStatus === 'paid' && row.releasedAt === null)
       .map((row) => row.id);
