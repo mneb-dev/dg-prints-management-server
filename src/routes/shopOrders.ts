@@ -12,7 +12,7 @@ import type { OrderInput, OrderItemInput } from '../types/order.js';
 import { isShopVisible } from '../types/shop.js';
 import { NOTES_MAX_LENGTH } from '../utils/limits.js';
 import { startPayment, toShopPaymentMethods } from '../utils/paymongo.js';
-import { isValidPhMobileNumber } from '../utils/phPhone.js';
+import { isValidPhMobileNumber, normalizePhone } from '../utils/phPhone.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
 import { computeLineTotal, findPricingEntry, isAreaPriced, withConvenienceFee } from '../utils/shopPricing.js';
 import { isUuid } from '../utils/uuid.js';
@@ -204,7 +204,7 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     }
 
     const name = text(body.customer?.name, 60);
-    const phone = typeof body.customer?.phone === 'string' ? body.customer.phone.trim() : '';
+    const phone = typeof body.customer?.phone === 'string' ? normalizePhone(body.customer.phone.trim()) : '';
     // Only needed (and checked) when the cart is paid online — it's passed to PayMongo, not stored.
     const email = typeof body.customer?.email === 'string' ? body.customer.email.trim() : '';
     const street = text(body.address?.street, 120);

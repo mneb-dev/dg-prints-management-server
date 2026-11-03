@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { supabase } from '../config/supabaseClient.js';
+import { normalizePhone } from '../utils/phPhone.js';
 import type {
   CustomerRanking,
   Order,
@@ -211,7 +212,7 @@ export function toRpcPayload(order: Order) {
   return {
     id: order.id,
     customer_name: order.customerName,
-    customer_phone: order.customerPhone,
+    customer_phone: normalizePhone(order.customerPhone ?? ''),
     status: order.status,
     subtotal: order.subtotal,
     discount: order.discount,
@@ -225,7 +226,9 @@ export function toRpcPayload(order: Order) {
     created_by: order.createdBy,
     status_updated_by: order.statusUpdatedBy,
     status_updated_at: order.statusUpdatedAt,
-    shipping_address: order.shippingAddress ?? null,
+    shipping_address: order.shippingAddress
+      ? { ...order.shippingAddress, phone: normalizePhone(order.shippingAddress.phone ?? '') }
+      : null,
     payment_status: order.payment.status,
     payment_method: order.payment.method,
     payment_down_payment: order.payment.downPayment,
