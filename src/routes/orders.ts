@@ -8,6 +8,7 @@ import {
   listOrders,
   listTopCustomers,
   saveOrRequest,
+  setOrderArranged,
   updateOrder,
 } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
@@ -236,6 +237,8 @@ router.get('/', async (req, res, next) => {
 
     const hasOrRaw = queryString(req.query.hasOr);
     const hasOr = hasOrRaw === 'true' ? true : hasOrRaw === 'false' ? false : undefined;
+    const arrangedRaw = queryString(req.query.arranged);
+    const arranged = arrangedRaw === 'true' ? true : arrangedRaw === 'false' ? false : undefined;
 
     const result = await listOrders({
       page,
@@ -251,6 +254,7 @@ router.get('/', async (req, res, next) => {
       sortDir: parseSortDir(req.query.sortDir),
       channel: queryString(req.query.channel),
       hasOr,
+      arranged,
     });
     res.json(result);
   } catch (err) {
@@ -463,6 +467,24 @@ router.put('/:id/or-request', requirePermission('manage_orders'), async (req, re
       return;
     }
     const updated = await saveOrRequest(req.params.id, req.body, req.user!.role);
+    if (!updated) {
+      res.status(404).json({ error: `Order not found: ${req.params.id}` });
+      return;
+    }
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/arranged', requirePermission('manage_orders'), async (req, res, next) => {
+  try {
+    const arranged = req.body?.arranged;
+    if (typeof arranged !== 'boolean') {
+      res.status(400).json({ error: '"arranged" must be a boolean' });
+      return;
+    }
+    const updated = await setOrderArranged(req.params.id, arranged);
     if (!updated) {
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;

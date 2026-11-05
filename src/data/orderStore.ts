@@ -59,6 +59,7 @@ interface OrderRow {
   payment_method: string | null;
   payment_down_payment: number | string;
   payment_balance: number | string;
+  arranged_at: string | null;
   or_request: OrRequestRow | OrRequestRow[] | null;
   items: OrderItemRow[];
 }
@@ -88,7 +89,7 @@ const ORDER_SELECT = `
   subtotal, discount, total, notes, channel, additional_fees, layout_fee, layout_by,
   created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
-  payment_status, payment_method, payment_down_payment, payment_balance,
+  payment_status, payment_method, payment_down_payment, payment_balance, arranged_at,
   or_request:order_or_requests ( id, name, address, tin, invoice_number, created_at, updated_at ),
   items:order_items ( id, product_id, product_name, product_category,
     selected_options, quantity, notes, pricing, line_total, sticker_quotation, sort_order ),
@@ -187,6 +188,8 @@ function mapRowToOrder(row: OrderRow): Order {
       balance: Number(row.payment_balance),
     },
     orRequest: mapOrRequestRow(row.or_request),
+    arranged: row.arranged_at !== null,
+    arrangedAt: row.arranged_at,
     paidOnline: false, // set by markPaidOnline
   };
 }
@@ -294,6 +297,7 @@ export interface ListOrdersParams {
   sortDir: 'asc' | 'desc';
   channel?: string;
   hasOr?: boolean;
+  arranged?: boolean;
 }
 
 export interface ListOrdersResult {
@@ -318,6 +322,7 @@ export async function listOrders(params: ListOrdersParams): Promise<ListOrdersRe
     sortDir,
     channel,
     hasOr,
+    arranged,
   } = params;
   const statusList = status
     ? status.split(',').map((s) => s.trim()).filter(Boolean)
@@ -336,6 +341,7 @@ export async function listOrders(params: ListOrdersParams): Promise<ListOrdersRe
     p_sort_dir: sortDir,
     p_has_or: hasOr === undefined ? null : hasOr,
     p_channel: channel || null,
+    p_arranged: arranged === undefined ? null : arranged,
   });
   if (error) throw new Error(error.message);
   const payload = data as unknown as { rows: OrderRow[]; total: number };
@@ -455,6 +461,8 @@ export function buildOrder(input: OrderInput, actorId: string | null): Order {
     shippingAddress: input.shippingAddress ?? null,
     payment,
     orRequest: null,
+    arranged: false,
+    arrangedAt: null,
     paidOnline: false,
   };
 }
@@ -544,6 +552,23 @@ export async function saveOrRequest(
     { onConflict: 'order_id' }
   );
   if (error) throw new Error(error.message);
+
+  return getOrder(orderId);
+}
+
+/** Marks/unmarks the order's shipment as arranged (booked in SPX). Independent of order status;
+ * arranged_at records when it was marked and is cleared on unmark. */
+export async function setOrderArranged(
+  orderId: string,
+  arranged: boolean
+): Promise<Order | undefined> {
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ arranged_at: arranged ? new Date().toISOString() : null })
+    .eq('id', orderId)
+    .select('id');
+  if (error) throw new Error(error.message);
+  if ((data?.length ?? 0) === 0) return undefined;
 
   return getOrder(orderId);
 }
