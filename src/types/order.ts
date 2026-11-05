@@ -99,6 +99,9 @@ export interface Order {
   shippingAddress: ShippingAddress | null;
   payment: Payment;
   orRequest: OrRequest | null;
+  /** Shipment arranged (booked in SPX) — independent of status; set via PUT /orders/:id/arranged. */
+  arranged: boolean;
+  arrangedAt: string | null;
   /** Paid through the online shop's PayMongo checkout — its payment can then only be marked refunded. */
   paidOnline: boolean;
 }
@@ -122,6 +125,8 @@ export type OrderInput = Partial<
     | 'statusUpdatedByName'
     | 'statusUpdatedAt'
     | 'orRequest'
+    | 'arranged'
+    | 'arrangedAt'
   >
 > & {
   items?: OrderItemInput[];
