@@ -8,6 +8,7 @@ import {
   listOrders,
   listTopCustomers,
   saveOrRequest,
+  searchCustomers,
   setOrderArranged,
   updateOrder,
 } from '../data/orderStore.js';
@@ -267,6 +268,18 @@ router.get('/customers/top', async (req, res, next) => {
   try {
     const customers = await listTopCustomers(CUSTOMER_RANKING_WINDOW_DAYS);
     res.json({ customers, windowDays: CUSTOMER_RANKING_WINDOW_DAYS });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Customer Name suggestions for the order form: all order history, any status. Capped at the
+// name field's 60-char limit.
+router.get('/customers/search', async (req, res, next) => {
+  try {
+    const query = queryString(req.query.q).slice(0, 60);
+    const customers = await searchCustomers(query, 20);
+    res.json({ customers });
   } catch (err) {
     next(err);
   }
