@@ -361,16 +361,28 @@ interface CustomerRankingRow {
   order_count: number | string;
 }
 
-export async function listTopCustomers(days: number): Promise<CustomerRanking[]> {
-  const { data, error } = await supabase.rpc('top_customers', { p_days: days });
-  if (error) throw new Error(error.message);
-  return (data as unknown as CustomerRankingRow[]).map((row) => ({
+function mapCustomerRankingRow(row: CustomerRankingRow): CustomerRanking {
+  return {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     shippingAddress: row.shipping_address as ShippingAddress | null,
     totalSpent: Number(row.total_spent),
     orderCount: Number(row.order_count),
-  }));
+  };
+}
+
+export async function listTopCustomers(days: number): Promise<CustomerRanking[]> {
+  const { data, error } = await supabase.rpc('top_customers', { p_days: days });
+  if (error) throw new Error(error.message);
+  return (data as unknown as CustomerRankingRow[]).map(mapCustomerRankingRow);
+}
+
+/** Every customer who has ever ordered (any status, any date) whose name contains `query` —
+ * powers the order form's Customer Name suggestions. Totals are all-time. */
+export async function searchCustomers(query: string, limit: number): Promise<CustomerRanking[]> {
+  const { data, error } = await supabase.rpc('search_customers', { p_query: query, p_limit: limit });
+  if (error) throw new Error(error.message);
+  return (data as unknown as CustomerRankingRow[]).map(mapCustomerRankingRow);
 }
 
 interface StatusAgingRow {
