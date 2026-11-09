@@ -10,6 +10,7 @@ export interface FinanceSummary {
   range: { from: string; to: string };
   totalRevenue: number;
   revenueOrderCount: number;
+  partialOrderCount: number;
   totalExpenses: number;
   expenseCount: number;
   netProfit: number;
@@ -24,6 +25,7 @@ interface FinanceSummaryRow {
   range: { from: string; to: string };
   totalRevenue: number | string;
   revenueOrderCount: number | string;
+  partialOrderCount?: number | string;
   totalExpenses: number | string;
   expenseCount: number | string;
   netProfit: number | string;
@@ -49,6 +51,7 @@ export async function getFinanceSummary(dateFrom: string, dateTo: string): Promi
     range: row.range,
     totalRevenue: Number(row.totalRevenue ?? 0),
     revenueOrderCount: Number(row.revenueOrderCount ?? 0),
+    partialOrderCount: Number(row.partialOrderCount ?? 0),
     totalExpenses: Number(row.totalExpenses ?? 0),
     expenseCount: Number(row.expenseCount ?? 0),
     netProfit: Number(row.netProfit ?? 0),
