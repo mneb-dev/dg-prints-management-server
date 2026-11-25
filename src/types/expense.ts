@@ -71,6 +71,8 @@ export interface RecurringExpense {
   notes: string;
   frequency: RecurrenceFrequency;
   startDate: string;
+  /** Inclusive last run date; null = runs until paused. */
+  endDate: string | null;
   nextRunDate: string;
   active: boolean;
   createdBy: string | null;

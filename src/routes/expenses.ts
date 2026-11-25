@@ -11,6 +11,7 @@ import {
 import {
   createRecurringExpense,
   deleteRecurringExpense,
+  getRecurringExpense,
   listRecurringExpenses,
   updateRecurringExpense,
 } from '../data/recurringExpenseStore.js';
@@ -52,6 +53,18 @@ function validatePaymentMethod(paymentMethod: unknown): string | null {
 function validateDate(date: unknown): string | null {
   if (typeof date !== 'string' || Number.isNaN(Date.parse(date))) {
     return '"date" must be a valid date';
+  }
+  return null;
+}
+
+/** Optional, inclusive end date of a recurring schedule; null/undefined = no end date. */
+function validateEndDate(endDate: unknown, startDate: unknown): string | null {
+  if (endDate === undefined || endDate === null) return null;
+  if (typeof endDate !== 'string' || Number.isNaN(Date.parse(endDate))) {
+    return '"endDate" must be a valid date or null';
+  }
+  if (typeof startDate === 'string' && Date.parse(endDate) < Date.parse(startDate)) {
+    return 'End date must be on or after the start date';
   }
   return null;
 }
@@ -131,6 +144,11 @@ router.post('/recurring', requireRole('admin', 'superadmin'), async (req, res, n
       res.status(400).json({ error: startDateError });
       return;
     }
+    const endDateError = validateEndDate(req.body?.endDate, req.body?.startDate);
+    if (endDateError) {
+      res.status(400).json({ error: endDateError });
+      return;
+    }
     const notesError = validateNotes(req.body?.notes);
     if (notesError) {
       res.status(400).json({ error: notesError });
@@ -180,12 +198,50 @@ router.put('/recurring/:id', requireRole('admin', 'superadmin'), async (req, res
         return;
       }
     }
+    // Check the end date against whichever start date the schedule will have after this update.
+    const endDate = req.body?.endDate;
+    if (endDate !== undefined && endDate !== null) {
+      let startDate = req.body?.startDate;
+      if (startDate === undefined) {
+        const existing = await getRecurringExpense(req.params.id);
+        if (!existing) {
+          res.status(404).json({ error: `Recurring expense not found: ${req.params.id}` });
+          return;
+        }
+        startDate = existing.startDate;
+      }
+      const endDateError = validateEndDate(endDate, startDate);
+      if (endDateError) {
+        res.status(400).json({ error: endDateError });
+        return;
+      }
+    } else if (req.body?.startDate !== undefined && endDate === undefined) {
+      // Moving only the start date must not leave it after an existing end date.
+      const existing = await getRecurringExpense(req.params.id);
+      if (existing?.endDate && Date.parse(existing.endDate) < Date.parse(req.body.startDate)) {
+        res.status(400).json({ error: 'End date must be on or after the start date' });
+        return;
+      }
+    }
     const notesError = validateNotes(req.body?.notes);
     if (notesError) {
       res.status(400).json({ error: notesError });
       return;
     }
-    const updated = await updateRecurringExpense(req.params.id, req.body ?? {});
+    // The cron sets active = false once a schedule runs past its end date ("Ended"). Moving that
+    // end date out (or clearing it) so the next run is back in range revives the schedule, rather
+    // than leaving it looking "Paused". A schedule the user paused by hand isn't ended, so it stays
+    // paused.
+    const input = { ...(req.body ?? {}) };
+    if (endDate !== undefined && input.active === undefined) {
+      const existing = await getRecurringExpense(req.params.id);
+      const wasEnded =
+        !!existing && !existing.active && !!existing.endDate && existing.nextRunDate > existing.endDate;
+      if (wasEnded && (endDate === null || String(endDate) >= existing.nextRunDate)) {
+        input.active = true;
+      }
+    }
+    const updated = await updateRecurringExpense(req.params.id, input);
     if (!updated) {
       res.status(404).json({ error: `Recurring expense not found: ${req.params.id}` });
       return;

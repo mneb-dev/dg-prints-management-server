@@ -16,6 +16,7 @@ interface RecurringExpenseRow {
   notes: string;
   frequency: RecurringExpense['frequency'];
   start_date: string;
+  end_date: string | null;
   next_run_date: string;
   active: boolean;
   created_by: string | null;
@@ -28,7 +29,7 @@ interface RecurringExpenseRow {
 // getUser() round-trip per row (listRecurringExpenses() used to fire one per schedule via
 // Promise.all -- same fix as orderStore.ts's getOrder/expenseStore.ts's getExpense).
 const RECURRING_EXPENSE_SELECT =
-  'id, amount, category, payment_method, notes, frequency, start_date, next_run_date, active, created_by, created_at, updated_at, ' +
+  'id, amount, category, payment_method, notes, frequency, start_date, end_date, next_run_date, active, created_by, created_at, updated_at, ' +
   'created_by_user:users!recurring_expenses_created_by_fkey ( first_name, last_name )';
 
 function actorName(value: ActorRow | ActorRow[] | null | undefined): string {
@@ -45,6 +46,7 @@ function mapRowToRecurringExpense(row: RecurringExpenseRow): RecurringExpense {
     notes: row.notes,
     frequency: row.frequency,
     startDate: row.start_date,
+    endDate: row.end_date,
     nextRunDate: row.next_run_date,
     active: row.active,
     createdBy: row.created_by,
@@ -103,6 +105,7 @@ export async function createRecurringExpense(
       notes: input.notes ?? '',
       frequency: input.frequency,
       start_date: input.startDate,
+      end_date: input.endDate ?? null,
       next_run_date: input.startDate,
       active: input.active ?? true,
       created_by: actorId,
@@ -124,6 +127,8 @@ export async function updateRecurringExpense(
   if (input.notes !== undefined) update.notes = input.notes;
   if (input.frequency !== undefined) update.frequency = input.frequency;
   if (input.startDate !== undefined) update.start_date = input.startDate;
+  // null clears the end date.
+  if (input.endDate !== undefined) update.end_date = input.endDate;
   if (input.active !== undefined) update.active = input.active;
 
   const { data, error } = await supabase
