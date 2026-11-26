@@ -116,8 +116,6 @@ export interface Order {
   /** Shipment arranged (booked in SPX) — independent of status; set via PUT /orders/:id/arranged. */
   arranged: boolean;
   arrangedAt: string | null;
-  /** SPX tracking number (uppercase) — saving one also marks the order arranged; see setOrderTracking. */
-  trackingNumber: string | null;
   /** Paid through the online shop's PayMongo checkout — its payment can then only be marked refunded. */
   paidOnline: boolean;
 }
