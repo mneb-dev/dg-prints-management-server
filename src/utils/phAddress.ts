@@ -1,6 +1,6 @@
 import type { ShippingAddress, ShippingAddressParts } from '../types/order.js';
 import { normalizePhone } from './phPhone.js';
-import { canonicalProvinceName } from './phProvinces.js';
+import { isKnownProvince } from './phProvinces.js';
 
 export const ADDRESS_MAX = 250;
 export const ADDRESS_DETAIL_MAX = 150;
@@ -36,7 +36,7 @@ export function validateShippingParts(parts: unknown): string | null {
   if (!isString(city, ADDRESS_PLACE_MAX, true)) {
     return `"shippingAddress.parts.city" is required (at most ${ADDRESS_PLACE_MAX} characters)`;
   }
-  if (typeof province !== 'string' || !canonicalProvinceName(province)) {
+  if (typeof province !== 'string' || !isKnownProvince(province)) {
     return '"shippingAddress.parts.province" must be a Philippine province';
   }
   if (zip !== undefined && zip !== null && zip !== '' && (typeof zip !== 'string' || !/^\d{4}$/.test(zip.trim()))) {
@@ -70,7 +70,8 @@ export function normalizeShippingAddress(raw: unknown): ShippingAddress | null |
     detail: String(rawParts.detail).trim(),
     barangay: String(rawParts.barangay).trim(),
     city: String(rawParts.city).trim(),
-    province: canonicalProvinceName(String(rawParts.province))!,
+    // Kept as sent: the portal uses SPX's exact spelling, which the bulk export and SPX's Autofill need.
+    province: String(rawParts.province).trim(),
     zip: typeof rawParts.zip === 'string' ? rawParts.zip.trim() : '',
   };
   return { ...base, address: composeAddress(parts), parts };

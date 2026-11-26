@@ -48,7 +48,7 @@ export interface ShippingAddressParts {
   detail: string;
   barangay: string;
   city: string;
-  /** One of `PROVINCES` in `utils/phProvinces.ts` (canonical spelling). */
+  /** SPX's spelling (portal address data comes from SPX's template); accepted by `isKnownProvince`. */
   province: string;
   zip: string;
 }

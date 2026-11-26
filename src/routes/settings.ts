@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 import { getSettings, updateSettings } from '../data/settingsStore.js';
 import { requireAuth, requireSuperadminOrPermission } from '../middleware/auth.js';
-import type { AppSettingsInput } from '../types/settings.js';
+import { SPX_ITEM_TYPES, type AppSettingsInput, type SpxExportDefaults } from '../types/settings.js';
 import { MESSENGER_LINK_HOSTS, toMessengerUrl } from '../utils/messengerUrl.js';
 import { SUPPORTED_SHOP_PAYMENT_METHODS } from '../utils/paymongo.js';
 
@@ -13,6 +13,21 @@ router.use(requireAuth);
 function validateShippingFee(value: unknown): string | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return '"shippingFee" must be a non-negative number';
+  }
+  return null;
+}
+
+/** SPX's own limits from its mass order template: weight up to 50 kg, each side up to 150 cm. */
+function validateSpxExportDefaults(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return '"spxExportDefaults" must be an object';
+  const { weightKg, lengthCm, widthCm, heightCm, itemType } = value as Record<string, unknown>;
+  const inRange = (n: unknown, max: number) => typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= max;
+  if (!inRange(weightKg, 50)) return '"spxExportDefaults.weightKg" must be more than 0 and at most 50';
+  if (![lengthCm, widthCm, heightCm].every((n) => inRange(n, 150))) {
+    return '"spxExportDefaults" length, width and height must be more than 0 and at most 150';
+  }
+  if (!SPX_ITEM_TYPES.includes(itemType as SpxExportDefaults['itemType'])) {
+    return `"spxExportDefaults.itemType" must be one of: ${SPX_ITEM_TYPES.join(', ')}`;
   }
   return null;
 }
@@ -116,11 +131,21 @@ router.put('/', requireSuperadminOrPermission('manage_settings'), async (req, re
       }
       input.shopPaymentMethods = req.body.shopPaymentMethods;
     }
+    if (req.body?.spxExportDefaults !== undefined) {
+      const error = validateSpxExportDefaults(req.body.spxExportDefaults);
+      if (error) {
+        res.status(400).json({ error });
+        return;
+      }
+      const { weightKg, lengthCm, widthCm, heightCm, itemType } = req.body.spxExportDefaults as SpxExportDefaults;
+      input.spxExportDefaults = { weightKg, lengthCm, widthCm, heightCm, itemType };
+    }
     if (Object.keys(input).length === 0) {
       res
         .status(400)
         .json({
-          error: 'Provide "shippingFee", "shippingRates", "messengerUrl", "convenienceFeePercent" and/or "shopPaymentMethods"',
+          error:
+            'Provide "shippingFee", "shippingRates", "messengerUrl", "convenienceFeePercent", "shopPaymentMethods" and/or "spxExportDefaults"',
         });
       return;
     }
