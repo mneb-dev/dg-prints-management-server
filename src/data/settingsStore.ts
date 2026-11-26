@@ -1,9 +1,17 @@
 import { supabase } from '../config/supabaseClient.js';
-import type { AppSettings, AppSettingsInput } from '../types/settings.js';
+import type { AppSettings, AppSettingsInput, SpxExportDefaults } from '../types/settings.js';
 
 const SETTINGS_SELECT =
   'shipping_fee, shipping_fee_luzon, shipping_fee_visayas, shipping_fee_mindanao, messenger_url, ' +
-  'convenience_fee_percent, shop_payment_methods, updated_at';
+  'convenience_fee_percent, shop_payment_methods, spx_export_defaults, updated_at';
+
+const DEFAULT_SPX_EXPORT: SpxExportDefaults = {
+  weightKg: 0.5,
+  lengthCm: 20,
+  widthCm: 15,
+  heightCm: 5,
+  itemType: 'General merchandise',
+};
 
 interface AppSettingsRow {
   shipping_fee: number;
@@ -13,6 +21,7 @@ interface AppSettingsRow {
   messenger_url: string | null;
   convenience_fee_percent: number | string;
   shop_payment_methods: string[] | null;
+  spx_export_defaults: Partial<SpxExportDefaults> | null;
   updated_at: string;
 }
 
@@ -27,6 +36,7 @@ function mapRowToSettings(row: AppSettingsRow): AppSettings {
     messengerUrl: row.messenger_url ?? '',
     convenienceFeePercent: Number(row.convenience_fee_percent ?? 0),
     shopPaymentMethods: row.shop_payment_methods ?? ['gcash'],
+    spxExportDefaults: { ...DEFAULT_SPX_EXPORT, ...(row.spx_export_defaults ?? {}) },
     updatedAt: row.updated_at,
   };
 }
@@ -52,6 +62,7 @@ export async function updateSettings(input: AppSettingsInput): Promise<AppSettin
   if (input.messengerUrl !== undefined) patch.messenger_url = input.messengerUrl;
   if (input.convenienceFeePercent !== undefined) patch.convenience_fee_percent = input.convenienceFeePercent;
   if (input.shopPaymentMethods !== undefined) patch.shop_payment_methods = input.shopPaymentMethods;
+  if (input.spxExportDefaults !== undefined) patch.spx_export_defaults = input.spxExportDefaults;
   const { data, error } = await supabase
     .from('app_settings')
     .update(patch)

@@ -42,11 +42,25 @@ export interface OrderItem {
   stickerQuotation?: StickerQuotation | null;
 }
 
+/** The structured pieces of a delivery address (portal order form). `address` is composed from these. */
+export interface ShippingAddressParts {
+  /** House/unit no., street, subdivision. */
+  detail: string;
+  barangay: string;
+  city: string;
+  /** SPX's spelling (portal address data comes from SPX's template); accepted by `isKnownProvince`. */
+  province: string;
+  zip: string;
+}
+
 export interface ShippingAddress {
   name: string;
   phone: string;
+  /** One-line address every reader uses; composed from `parts` when they're present. */
   address: string;
   fee: number;
+  /** Absent on older orders and online shop orders, which only have the one-line `address`. */
+  parts?: ShippingAddressParts;
 }
 
 export interface OrRequest {
@@ -102,6 +116,8 @@ export interface Order {
   /** Shipment arranged (booked in SPX) — independent of status; set via PUT /orders/:id/arranged. */
   arranged: boolean;
   arrangedAt: string | null;
+  /** SPX tracking number (uppercase) — saving one also marks the order arranged; see setOrderTracking. */
+  trackingNumber: string | null;
   /** Paid through the online shop's PayMongo checkout — its payment can then only be marked refunded. */
   paidOnline: boolean;
 }

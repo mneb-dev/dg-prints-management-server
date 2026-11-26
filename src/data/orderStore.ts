@@ -60,6 +60,7 @@ interface OrderRow {
   payment_down_payment: number | string;
   payment_balance: number | string;
   arranged_at: string | null;
+  tracking_number: string | null;
   or_request: OrRequestRow | OrRequestRow[] | null;
   items: OrderItemRow[];
 }
@@ -90,6 +91,7 @@ const ORDER_SELECT = `
   created_at, updated_at, created_by, status_updated_by, status_updated_at,
   shipping_address,
   payment_status, payment_method, payment_down_payment, payment_balance, arranged_at,
+  tracking_number,
   or_request:order_or_requests ( id, name, address, tin, invoice_number, created_at, updated_at ),
   items:order_items ( id, product_id, product_name, product_category,
     selected_options, quantity, notes, pricing, line_total, sticker_quotation, sort_order ),
@@ -190,6 +192,7 @@ function mapRowToOrder(row: OrderRow): Order {
     orRequest: mapOrRequestRow(row.or_request),
     arranged: row.arranged_at !== null,
     arrangedAt: row.arranged_at,
+    trackingNumber: row.tracking_number ?? null,
     paidOnline: false, // set by markPaidOnline
   };
 }
@@ -475,6 +478,7 @@ export function buildOrder(input: OrderInput, actorId: string | null): Order {
     orRequest: null,
     arranged: false,
     arrangedAt: null,
+    trackingNumber: null,
     paidOnline: false,
   };
 }
@@ -484,6 +488,8 @@ export async function createOrder(input: OrderInput, actorId: string | null): Pr
   const order = buildOrder(input, actorId);
   const { error } = await supabase.rpc('upsert_order', { payload: toRpcPayload(order) });
   if (error) throw new Error(error.message);
+
+  if (input.trackingNumber) await setOrderTracking(order.id, input.trackingNumber);
 
   const created = await getOrder(order.id);
   if (!created) throw new Error('Failed to load created order');
@@ -515,6 +521,7 @@ export async function updateOrder(
       : existing.payment,
     id: existing.id,
     orderNumber: existing.orderNumber,
+    trackingNumber: existing.trackingNumber,
     updatedAt: now,
     createdAt: input.createdAt ?? existing.createdAt,
     createdBy: input.createdBy !== undefined ? input.createdBy : existing.createdBy,
@@ -534,6 +541,10 @@ export async function updateOrder(
 
   const { error } = await supabase.rpc('upsert_order', { payload: toRpcPayload(updated) });
   if (error) throw new Error(error.message);
+  // upsert_order doesn't write tracking_number — it has its own update (which can also mark arranged).
+  if (input.trackingNumber !== undefined && (input.trackingNumber ?? null) !== existing.trackingNumber) {
+    await setOrderTracking(id, input.trackingNumber ?? null);
+  }
 
   const result = await getOrder(id);
   if (!result) throw new Error('Failed to load updated order');
@@ -583,6 +594,45 @@ export async function setOrderArranged(
   if ((data?.length ?? 0) === 0) return undefined;
 
   return getOrder(orderId);
+}
+
+/** Saves the SPX tracking number (already normalized; null clears it). A non-empty number also marks the
+ * order arranged when it isn't yet — clearing it leaves the arranged flag alone. False = no such order. */
+export async function setOrderTracking(orderId: string, trackingNumber: string | null): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ tracking_number: trackingNumber })
+    .eq('id', orderId)
+    .select('id');
+  if (error) throw new Error(error.message);
+  if ((data?.length ?? 0) === 0) return false;
+  if (trackingNumber) {
+    const { error: arrangedError } = await supabase
+      .from('orders')
+      .update({ arranged_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .is('arranged_at', null);
+    if (arrangedError) throw new Error(arrangedError.message);
+  }
+  return true;
+}
+
+/** id / tracking number of the orders with these order numbers (for the SPX report import). */
+export async function findOrdersByNumber(
+  orderNumbers: string[]
+): Promise<{ id: string; orderNumber: string; customerName: string; trackingNumber: string | null }[]> {
+  if (orderNumbers.length === 0) return [];
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, order_number, customer_name, tracking_number')
+    .in('order_number', orderNumbers);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    orderNumber: row.order_number as string,
+    customerName: row.customer_name as string,
+    trackingNumber: (row.tracking_number as string | null) ?? null,
+  }));
 }
 
 export async function deleteOrder(id: string): Promise<boolean> {

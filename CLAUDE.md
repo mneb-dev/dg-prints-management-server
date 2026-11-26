@@ -104,6 +104,23 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   never below the original). Checkout compares cart prices against those marked-up prices, saves order items at
   their original prices and stores the difference as `additional_fees` with a "Convenience fee 2.5%" note, so the
   order total equals what the buyer saw. Shipping and made-to-order products (Messenger-only) aren't marked up.
+- **Shipping address** (`orders.shipping_address`, JSONB): `address` is the one-line string every reader uses.
+  Portal orders may also send structured `parts` `{ detail, barangay, city, province, zip }`
+  (`src/utils/phAddress.ts`): `validateShippingParts` checks them (province must be in `phProvinces.ts`) and
+  `normalizeShippingAddress` stores only known fields with `address` recomposed via `composeAddress` (also
+  used by the shop checkout). Older and shop orders have no `parts`. The portal's address data comes from SPX's
+  template, so `parts.province` uses SPX's spelling and is stored as sent; `isKnownProvince` accepts the
+  `phProvinces.ts` names (any case) plus `SPX_PROVINCE_ALIASES` (SPX's older names, e.g. "Compostela Valley").
+- **SPX export defaults** (`app_settings.spx_export_defaults` jsonb, `settings.spxExportDefaults`): parcel weight,
+  L/W/H and item type (one of `SPX_ITEM_TYPES`) the portal's "Export to SPX" file starts with; validated
+  against SPX's limits (≤50 kg, ≤150 cm). Migration `20261126100000_add_spx_export_defaults.sql` must be applied
+  before deploying — `getSettings` selects the column.
+- **Tracking number** (`orders.tracking_number`, `order.trackingNumber`): SPX tracking no., normalized by
+  `normalizeTrackingNumber` (`src/utils/trackingNumber.ts`: uppercase, letters/digits/dashes, ≤40). `upsert_order`
+  doesn't write it — create/update call `setOrderTracking`, which also sets `arranged_at` when a number is saved
+  (clearing it leaves arranged alone). `POST /orders/tracking-numbers` (admin/superadmin + `manage_orders`) is the bulk import from
+  SPX's order report, matched by order number (`dryRun` previews). `list_orders` returns it and searches it.
+  Migration `20261127090000_add_order_tracking_number.sql` must be applied before deploying.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.

@@ -33,8 +33,32 @@ export const PROVINCES: Province[] = [
   ...MINDANAO.map((name) => ({ name, region: 'mindanao' as const })),
 ];
 
-const REGION_BY_PROVINCE = new Map(PROVINCES.map((province) => [province.name.toLowerCase(), province.region]));
+const PROVINCE_BY_NAME = new Map(PROVINCES.map((province) => [province.name.toLowerCase(), province]));
 
 export function regionOfProvince(name: string): ShippingRegion | undefined {
-  return REGION_BY_PROVINCE.get(name.trim().toLowerCase());
+  return PROVINCE_BY_NAME.get(name.trim().toLowerCase())?.region;
+}
+
+/** The list's own spelling of a province name, matched case-insensitively ("metro manila" → "Metro Manila"). */
+export function canonicalProvinceName(name: string): string | undefined {
+  return PROVINCE_BY_NAME.get(name.trim().toLowerCase())?.name;
+}
+
+/**
+ * SPX Express still uses these older province names; the portal's address picker uses SPX's spellings
+ * (from SPX's mass-order template), so portal orders may carry them. Each maps to the province above that
+ * covers the same area. ("Del" vs "del" differences need no entry — matching ignores case.)
+ */
+export const SPX_PROVINCE_ALIASES: Record<string, string> = {
+  'Compostela Valley': 'Davao de Oro',
+  'North Cotabato': 'Cotabato',
+  'Western Samar': 'Samar',
+  Maguindanao: 'Maguindanao del Norte',
+};
+const ALIAS_BY_NAME = new Map(Object.entries(SPX_PROVINCE_ALIASES).map(([spx, ours]) => [spx.toLowerCase(), ours]));
+
+/** A province name the portal may send: one above (any case) or an SPX spelling from SPX_PROVINCE_ALIASES. */
+export function isKnownProvince(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  return PROVINCE_BY_NAME.has(key) || ALIAS_BY_NAME.has(key);
 }
