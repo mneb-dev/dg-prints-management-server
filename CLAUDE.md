@@ -115,6 +115,12 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   L/W/H and item type (one of `SPX_ITEM_TYPES`) the portal's "Export to SPX" file starts with; validated
   against SPX's limits (≤50 kg, ≤150 cm). Migration `20261126100000_add_spx_export_defaults.sql` must be applied
   before deploying — `getSettings` selects the column.
+- **Tracking number** (`orders.tracking_number`, `order.trackingNumber`): SPX tracking no., normalized by
+  `normalizeTrackingNumber` (`src/utils/trackingNumber.ts`: uppercase, letters/digits/dashes, ≤40). `upsert_order`
+  doesn't write it — create/update call `setOrderTracking`, which also sets `arranged_at` when a number is saved
+  (clearing it leaves arranged alone). `POST /orders/tracking-numbers` (admin/superadmin + `manage_orders`) is the bulk import from
+  SPX's order report, matched by order number (`dryRun` previews). `list_orders` returns it and searches it.
+  Migration `20261127090000_add_order_tracking_number.sql` must be applied before deploying.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.

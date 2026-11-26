@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   createOrder,
   deleteOrder,
+  findOrdersByNumber,
   getOrder,
   getOrderStats,
   listOrders,
@@ -10,15 +11,17 @@ import {
   saveOrRequest,
   searchCustomers,
   setOrderArranged,
+  setOrderTracking,
   updateOrder,
 } from '../data/orderStore.js';
 import { getProduct } from '../data/productStore.js';
 import { getUser } from '../data/userStore.js';
 import { CUSTOMER_RANKING_WINDOW_DAYS } from '../config/env.js';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { NOTES_MAX_LENGTH } from '../utils/limits.js';
 import { normalizeShippingAddress, validateShippingParts } from '../utils/phAddress.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
+import { normalizeTrackingNumber } from '../utils/trackingNumber.js';
 import { parseLimit, parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
 const router = Router();
@@ -124,8 +127,15 @@ function validateShippingAddress(shippingAddress: unknown): string | null {
 
 /** Stores only known shipping fields, with `address` recomposed from structured parts when sent. */
 function withNormalizedShippingAddress<T extends Record<string, unknown>>(body: T): T {
-  if (!('shippingAddress' in body)) return body;
-  return { ...body, shippingAddress: normalizeShippingAddress(body.shippingAddress) };
+  let next = body;
+  if ('shippingAddress' in next) next = { ...next, shippingAddress: normalizeShippingAddress(next.shippingAddress) };
+  if ('trackingNumber' in next) next = { ...next, trackingNumber: normalizeTrackingNumber(next.trackingNumber).value };
+  return next;
+}
+
+function validateTrackingNumberField(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null || !('trackingNumber' in body)) return null;
+  return normalizeTrackingNumber((body as { trackingNumber?: unknown }).trackingNumber).error ?? null;
 }
 
 function validateOrRequest(body: unknown): string | null {
@@ -323,6 +333,87 @@ router.get('/dashboard-summary', async (req, res, next) => {
   }
 });
 
+const TRACKING_IMPORT_MAX_ROWS = 500;
+
+type TrackingImportStatus =
+  | 'will_set' | 'updated' | 'will_replace' | 'replaced' | 'unchanged' | 'not_found' | 'invalid' | 'duplicate';
+
+/**
+ * Bulk tracking numbers from SPX's order report: each row's Customer Reference No. is our order number
+ * (Export to SPX writes it). `dryRun` only reports what would happen. Saving also marks orders arranged.
+ * When an order appears twice, the later row wins and earlier ones are "duplicate". Admins/superadmins only.
+ */
+router.post('/tracking-numbers', requireRole('admin', 'superadmin'), requirePermission('manage_orders'), async (req, res, next) => {
+  try {
+    const rows = req.body?.rows;
+    const dryRun = req.body?.dryRun === true;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      res.status(400).json({ error: '"rows" must be a non-empty array' });
+      return;
+    }
+    if (rows.length > TRACKING_IMPORT_MAX_ROWS) {
+      res.status(400).json({ error: `At most ${TRACKING_IMPORT_MAX_ROWS} rows per import` });
+      return;
+    }
+
+    const parsed = rows.map((row: unknown) => {
+      const r = (typeof row === 'object' && row !== null ? row : {}) as { orderNumber?: unknown; trackingNumber?: unknown };
+      const orderNumber = typeof r.orderNumber === 'string' ? r.orderNumber.trim() : '';
+      const tracking = normalizeTrackingNumber(r.trackingNumber);
+      return { orderNumber, trackingNumber: tracking.value, error: tracking.error ?? (tracking.value ? null : 'Tracking number is missing') };
+    });
+    const lastIndex = new Map<string, number>();
+    parsed.forEach((row, index) => {
+      if (row.orderNumber && !row.error) lastIndex.set(row.orderNumber.toUpperCase(), index);
+    });
+
+    const found = await findOrdersByNumber([...new Set(parsed.map((row) => row.orderNumber).filter(Boolean))]);
+    const byNumber = new Map(found.map((order) => [order.orderNumber.toUpperCase(), order]));
+
+    const results: {
+      orderNumber: string;
+      trackingNumber: string | null;
+      status: TrackingImportStatus;
+      orderId?: string;
+      customerName?: string;
+      previousTrackingNumber?: string | null;
+      error?: string;
+    }[] = [];
+    for (const [index, row] of parsed.entries()) {
+      const key = row.orderNumber.toUpperCase();
+      const base = { orderNumber: row.orderNumber, trackingNumber: row.trackingNumber };
+      if (!row.orderNumber || row.error) {
+        results.push({ ...base, status: 'invalid', error: row.orderNumber ? row.error! : 'Order number is missing' });
+        continue;
+      }
+      const order = byNumber.get(key);
+      if (!order) {
+        results.push({ ...base, status: 'not_found' });
+        continue;
+      }
+      const info = { orderId: order.id, customerName: order.customerName, previousTrackingNumber: order.trackingNumber };
+      if (lastIndex.get(key) !== index) {
+        results.push({ ...base, ...info, status: 'duplicate' });
+        continue;
+      }
+      if (order.trackingNumber === row.trackingNumber) {
+        results.push({ ...base, ...info, status: 'unchanged' });
+        continue;
+      }
+      const replacing = order.trackingNumber !== null;
+      if (!dryRun) await setOrderTracking(order.id, row.trackingNumber);
+      results.push({
+        ...base,
+        ...info,
+        status: dryRun ? (replacing ? 'will_replace' : 'will_set') : replacing ? 'replaced' : 'updated',
+      });
+    }
+    res.json({ dryRun, results });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const order = await getOrder(req.params.id);
@@ -371,6 +462,11 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
     const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);
     if (shippingAddressError) {
       res.status(400).json({ error: shippingAddressError });
+      return;
+    }
+    const trackingNumberError = validateTrackingNumberField(req.body);
+    if (trackingNumberError) {
+      res.status(400).json({ error: trackingNumberError });
       return;
     }
     const itemNotesError = validateItemNotes(req.body?.items);
@@ -456,6 +552,11 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
     const shippingAddressError = validateShippingAddress(req.body?.shippingAddress);
     if (shippingAddressError) {
       res.status(400).json({ error: shippingAddressError });
+      return;
+    }
+    const trackingNumberError = validateTrackingNumberField(req.body);
+    if (trackingNumberError) {
+      res.status(400).json({ error: trackingNumberError });
       return;
     }
     const itemNotesError = validateItemNotes(req.body?.items);
