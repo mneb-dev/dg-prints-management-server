@@ -17,6 +17,7 @@ import { getUser } from '../data/userStore.js';
 import { CUSTOMER_RANKING_WINDOW_DAYS } from '../config/env.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { NOTES_MAX_LENGTH } from '../utils/limits.js';
+import { normalizeShippingAddress, validateShippingParts } from '../utils/phAddress.js';
 import { isValidPhMobileNumber } from '../utils/phPhone.js';
 import { parseLimit, parsePage, parsePageSize, parseSortBy, parseSortDir, queryString } from './pagination.js';
 
@@ -118,7 +119,13 @@ function validateShippingAddress(shippingAddress: unknown): string | null {
   if (phone !== undefined && (typeof phone !== 'string' || !isValidPhMobileNumber(phone))) {
     return '"shippingAddress.phone" must be a valid PH mobile number';
   }
-  return null;
+  return validateShippingParts((shippingAddress as { parts?: unknown }).parts);
+}
+
+/** Stores only known shipping fields, with `address` recomposed from structured parts when sent. */
+function withNormalizedShippingAddress<T extends Record<string, unknown>>(body: T): T {
+  if (!('shippingAddress' in body)) return body;
+  return { ...body, shippingAddress: normalizeShippingAddress(body.shippingAddress) };
 }
 
 function validateOrRequest(body: unknown): string | null {
@@ -371,7 +378,7 @@ router.post('/', requirePermission('manage_orders'), async (req, res, next) => {
       res.status(400).json({ error: itemNotesError });
       return;
     }
-    const order = await createOrder(req.body, req.user!.sub);
+    const order = await createOrder(withNormalizedShippingAddress(req.body), req.user!.sub);
     res.status(201).json(order);
   } catch (err) {
     next(err);
@@ -461,7 +468,7 @@ router.put('/:id', requirePermission('manage_orders'), async (req, res, next) =>
       res.status(409).json({ error: lockError });
       return;
     }
-    const updated = await updateOrder(req.params.id, req.body ?? {}, req.user!.sub);
+    const updated = await updateOrder(req.params.id, withNormalizedShippingAddress(req.body ?? {}), req.user!.sub);
     if (!updated) {
       res.status(404).json({ error: `Order not found: ${req.params.id}` });
       return;

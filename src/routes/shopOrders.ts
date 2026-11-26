@@ -13,6 +13,7 @@ import { isShopVisible } from '../types/shop.js';
 import { NOTES_MAX_LENGTH } from '../utils/limits.js';
 import { startPayment, toShopPaymentMethods } from '../utils/paymongo.js';
 import { isValidPhMobileNumber, normalizePhone } from '../utils/phPhone.js';
+import { ADDRESS_MAX, composeAddress } from '../utils/phAddress.js';
 import { regionOfProvince } from '../utils/phProvinces.js';
 import { computeLineTotal, findPricingEntry, isAreaPriced, withConvenienceFee } from '../utils/shopPricing.js';
 import { isUuid } from '../utils/uuid.js';
@@ -265,8 +266,10 @@ router.post('/', placeOrderLimiter, async (req, res, next) => {
     const convenienceFee = roundToCentavo(Math.max(shopSubtotal - subtotal, 0));
     const total = roundToCentavo(subtotal + convenienceFee + shippingFee);
     // One line for the single address column, e.g. "12 Rizal St, Brgy. San Isidro, Quezon City, Metro Manila 1100".
-    const barangayLabel = /^(brgy\.?|barangay)\s/i.test(barangay!) ? barangay : `Brgy. ${barangay}`;
-    const address = `${street}, ${barangayLabel}, ${city}, ${province}${zip ? ` ${zip}` : ''}`.slice(0, 250);
+    const address = composeAddress({ detail: street!, barangay: barangay!, city: city!, province, zip }).slice(
+      0,
+      ADDRESS_MAX
+    );
 
     const orderInput: OrderInput = {
       customerName: name!,

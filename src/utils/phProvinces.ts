@@ -33,8 +33,13 @@ export const PROVINCES: Province[] = [
   ...MINDANAO.map((name) => ({ name, region: 'mindanao' as const })),
 ];
 
-const REGION_BY_PROVINCE = new Map(PROVINCES.map((province) => [province.name.toLowerCase(), province.region]));
+const PROVINCE_BY_NAME = new Map(PROVINCES.map((province) => [province.name.toLowerCase(), province]));
 
 export function regionOfProvince(name: string): ShippingRegion | undefined {
-  return REGION_BY_PROVINCE.get(name.trim().toLowerCase());
+  return PROVINCE_BY_NAME.get(name.trim().toLowerCase())?.region;
+}
+
+/** The list's own spelling of a province name, matched case-insensitively ("metro manila" → "Metro Manila"). */
+export function canonicalProvinceName(name: string): string | undefined {
+  return PROVINCE_BY_NAME.get(name.trim().toLowerCase())?.name;
 }

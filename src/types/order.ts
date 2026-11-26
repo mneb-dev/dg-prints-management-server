@@ -42,11 +42,25 @@ export interface OrderItem {
   stickerQuotation?: StickerQuotation | null;
 }
 
+/** The structured pieces of a delivery address (portal order form). `address` is composed from these. */
+export interface ShippingAddressParts {
+  /** House/unit no., street, subdivision. */
+  detail: string;
+  barangay: string;
+  city: string;
+  /** One of `PROVINCES` in `utils/phProvinces.ts` (canonical spelling). */
+  province: string;
+  zip: string;
+}
+
 export interface ShippingAddress {
   name: string;
   phone: string;
+  /** One-line address every reader uses; composed from `parts` when they're present. */
   address: string;
   fee: number;
+  /** Absent on older orders and online shop orders, which only have the one-line `address`. */
+  parts?: ShippingAddressParts;
 }
 
 export interface OrRequest {

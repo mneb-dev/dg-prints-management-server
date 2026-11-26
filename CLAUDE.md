@@ -104,6 +104,11 @@ or `.env.production.example` to `.env.production` for a production deploy, and s
   never below the original). Checkout compares cart prices against those marked-up prices, saves order items at
   their original prices and stores the difference as `additional_fees` with a "Convenience fee 2.5%" note, so the
   order total equals what the buyer saw. Shipping and made-to-order products (Messenger-only) aren't marked up.
+- **Shipping address** (`orders.shipping_address`, JSONB): `address` is the one-line string every reader uses.
+  Portal orders may also send structured `parts` `{ detail, barangay, city, province, zip }`
+  (`src/utils/phAddress.ts`): `validateShippingParts` checks them (province must be in `phProvinces.ts`) and
+  `normalizeShippingAddress` stores only known fields with `address` recomposed via `composeAddress` (also
+  used by the shop checkout). Older and shop orders have no `parts`.
 - IDs for new products/options/pricing entries are generated client-side in `productStore.ts` via
   `randomUUID()` (`forceNewIds` in `normalizeOptions`/`normalizePricing`), not left to the DB default, so the
   RPC payload always has ids to upsert against.
