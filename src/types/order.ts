@@ -180,7 +180,17 @@ export interface StatusAging {
   over7d: number;
 }
 
+// Partially paid orders (deposit taken, balance still owed) — powers the Orders page's
+// follow-up banner. Age is measured from created_at since there's no payment timestamp.
+export interface PartialPaymentsSummary {
+  count: number;
+  balance: number;
+  oldestAt: string | null;
+  over7d: number;
+}
+
 export interface OrderStats {
+  partialPayments?: PartialPaymentsSummary;
   byStatus: Record<string, number>;
   // Absent until the order_stats aging migration is applied to the database.
   agingByStatus?: Record<string, StatusAging>;
