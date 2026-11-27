@@ -10,6 +10,7 @@ import type {
   OrderItemInput,
   OrderItemPricing,
   OrderStats,
+  PartialPaymentsSummary,
   OrderUpdateInput,
   OrRequest,
   OrRequestInput,
@@ -400,11 +401,38 @@ interface OrderStatsRow {
   totalOrders: number | string;
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Partially paid orders for the Orders page follow-up banner. Same unfiltered row set order_stats()
+// counts (so `count` matches byPaymentStatus.partially_paid and the paymentStatus list filter).
+async function getPartialPaymentsSummary(): Promise<PartialPaymentsSummary> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('payment_balance, created_at')
+    .eq('payment_status', 'partially_paid');
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { payment_balance: number | string; created_at: string }[];
+  const weekAgo = Date.now() - WEEK_MS;
+  let balance = 0;
+  let oldestAt: string | null = null;
+  let over7d = 0;
+  for (const row of rows) {
+    balance += Number(row.payment_balance ?? 0);
+    if (!oldestAt || row.created_at < oldestAt) oldestAt = row.created_at;
+    if (new Date(row.created_at).getTime() < weekAgo) over7d += 1;
+  }
+  return { count: rows.length, balance: Math.round(balance * 100) / 100, oldestAt, over7d };
+}
+
 export async function getOrderStats(): Promise<OrderStats> {
-  const { data, error } = await supabase.rpc('order_stats');
+  const [{ data, error }, partialPayments] = await Promise.all([
+    supabase.rpc('order_stats'),
+    getPartialPaymentsSummary(),
+  ]);
   if (error) throw new Error(error.message);
   const row = data as unknown as OrderStatsRow;
   return {
+    partialPayments,
     byStatus: row.byStatus ?? {},
     // Left undefined (so it's dropped from the JSON) when the database's order_stats() predates
     // the aging migration — the portal then hides its aging hints instead of showing every order
